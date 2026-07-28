@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Task App</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root {
+    --blue: #2563eb; --green: #16a34a; --red: #dc2626;
+    --bg: #f4f6f9; --card: #fff; --text: #1f2937; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--blue); color:#fff; padding:16px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:18px; margin:0; }
+  header .email { font-size:12px; opacity:.9; }
+  .container { max-width:640px; margin:0 auto; padding:16px; }
+  .section-title { font-size:14px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:20px 0 8px; }
+  .card { background:var(--card); border-radius:10px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .card .task-name { font-weight:600; font-size:15px; }
+  .card .meta { font-size:12px; color:var(--muted); margin-top:4px; }
+  .card .actions { margin-top:10px; display:flex; gap:8px; }
+  button { border:none; border-radius:6px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-done, .btn-approve { background:var(--green); color:#fff; }
+  .btn-reject { background:var(--red); color:#fff; }
+  .empty { color:var(--muted); font-size:13px; padding:8px 0; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#fee2e2; color:var(--red); margin-left:6px; }
+  .install-tip { font-size:12px; color:var(--muted); background:#eef2ff; border-radius:8px; padding:10px 12px; margin-bottom:16px; }
+  .center { text-align:center; padding:60px 20px; }
+  .error-box { background:#fee2e2; color:var(--red); padding:14px 16px; border-radius:8px; margin-top:20px; max-width:400px; margin-left:auto; margin-right:auto; }
+  #g_id_signin_container { display:flex; justify-content:center; margin-top:20px; }
+</style>
+</head>
+<body>
+
+<div id="signedOut" class="center">
+  <h2>Daily Task App</h2>
+  <p>Continue karne ke liye Google se sign in karein.</p>
+  <div id="g_id_signin_container"></div>
+  <div id="errorBox"></div>
+</div>
+
+<div id="signedIn" style="display:none">
+  <header>
+    <h1 id="pageTitle">Mere Aaj Ke Kaam</h1>
+    <span class="email" id="userEmailLabel"></span>
+  </header>
+  <div class="container">
+    <div class="install-tip">
+      📲 App jaisa shortcut ke liye: browser menu me "Add to Home Screen" / "Install" par tap karein.
+    </div>
+    <div id="app"><div class="empty">Loading...</div></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG — inn 2 values ko apne setup ke hisab se fill karo
+// ============================================================
+const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleusercontent.com";
+const API_URL = "https://script.google.com/macros/s/AKfycbx60_CQeJAR3nmZ_jw4Sd7QsPiZUQjFJeSEYyXzrqCSyMjrsW9605v8-BUkovh_VQ2Ncw/exec";
+
+const ADMIN_EMAIL = "pc@satijapaper.com";
+
+let idToken = null;
+let userEmail = null;
+let isAdmin = false;
+
+// ------------------------------------------------------------
+// GOOGLE SIGN-IN (identity only — koi Sheets scope client side
+// nahi liya jaata, isliye setup bahut halka hai)
+// ------------------------------------------------------------
+window.addEventListener('load', () => {
+  google.accounts.id.initialize({
+    client_id: CLIENT_ID,
+    callback: handleCredentialResponse
+  });
+  google.accounts.id.renderButton(
+    document.getElementById('g_id_signin_container'),
+    { theme: "outline", size: "large", text: "signin_with" }
+  );
+});
+
+function handleCredentialResponse(response) {
+  idToken = response.credential; // Google ID token (JWT)
+
+  // sirf UI display ke liye JWT payload decode kar rahe hain;
+  // real security check hamesha backend par (verifyIdToken_) hoti hai
+  const payload = JSON.parse(atob(idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  userEmail = payload.email;
+  isAdmin = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
+  document.getElementById('signedOut').style.display = 'none';
+  document.getElementById('signedIn').style.display = 'block';
+  document.getElementById('userEmailLabel').textContent = userEmail;
+  document.getElementById('pageTitle').textContent = isAdmin ? "Approval Panel" : "Mere Aaj Ke Kaam";
+
+  if (isAdmin) loadAdminView(); else loadDoerView();
+}
+
+function showError(msg) {
+  document.getElementById('errorBox').innerHTML = '<div class="error-box">' + msg + '</div>';
+}
+
+// ------------------------------------------------------------
+// API CALLS — sab GET requests, taaki CORS preflight na aaye
+// ------------------------------------------------------------
+async function callApi(action, params = {}) {
+  const url = new URL(API_URL);
+  url.searchParams.set('action', action);
+  url.searchParams.set('idToken', idToken);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
+  const res = await fetch(url.toString());
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error);
+  return json.data;
+}
+
+// ------------------------------------------------------------
+// DOER VIEW
+// ------------------------------------------------------------
+async function loadDoerView() {
+  try {
+    const data = await callApi('dashboard');
+    renderDoerView(data.today, data.rejected);
+  } catch (err) {
+    document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+  }
+}
+
+function renderDoerView(todayTasks, rejectedTasks) {
+  const app = document.getElementById('app');
+  app.innerHTML = "";
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Aaj Ke Task</div>');
+  if (todayTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">Aaj koi pending task nahi hai. 🎉</div>');
+  todayTasks.forEach(t => app.appendChild(taskCard(t, false)));
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Rejected Tasks (dubara karein)</div>');
+  if (rejectedTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">Koi rejected task nahi hai.</div>');
+  rejectedTasks.forEach(t => app.appendChild(taskCard(t, true)));
+}
+
+function taskCard(t, isRejected) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="task-name">' + t.task + (isRejected ? '<span class="badge">Rejected</span>' : '') + '</div>' +
+    '<div class="meta">' + t.department + ' • ' + (t.freq || '') + ' • Planned: ' + t.planned + '</div>';
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const btn = document.createElement('button');
+  btn.className = 'btn-done';
+  btn.textContent = isRejected ? 'Dubara Done Mark Karein' : 'Done ✓';
+  btn.onclick = () => markDone(t.row, btn);
+  actions.appendChild(btn);
+  card.appendChild(actions);
+  return card;
+}
+
+async function markDone(row, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    const data = await callApi('markDone', { row });
+    renderDoerView(data.today, data.rejected);
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+    btn.textContent = 'Done ✓';
+  }
+}
+
+// ------------------------------------------------------------
+// ADMIN VIEW
+// ------------------------------------------------------------
+async function loadAdminView() {
+  try {
+    const pending = await callApi('pendingApprovals');
+    renderAdminView(pending);
+  } catch (err) {
+    document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+  }
+}
+
+function renderAdminView(pending) {
+  const app = document.getElementById('app');
+  app.innerHTML = "";
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Approval Ke Liye Pending (' + pending.length + ')</div>');
+  if (pending.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">Sab clear hai, koi pending approval nahi. ✅</div>');
+
+  pending.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="task-name">' + t.task + '</div>' +
+      '<div class="meta">' + t.name + ' (' + t.email + ') • ' + t.department + '</div>' +
+      '<div class="meta">Planned: ' + t.planned + ' • Actual: ' + (t.actual || '') + '</div>';
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const approveBtn = document.createElement('button');
+    approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
+    approveBtn.onclick = () => decide(t.row, true, approveBtn);
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
+    rejectBtn.onclick = () => decide(t.row, false, rejectBtn);
+    actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
+    card.appendChild(actions);
+    app.appendChild(card);
+  });
+}
+
+async function decide(row, approve, btn) {
+  btn.disabled = true;
+  try {
+    let pending;
+    if (approve) {
+      pending = await callApi('approve', { row });
+    } else {
+      const remark = prompt('Decline karne ki wajah (optional):') || '';
+      pending = await callApi('reject', { row, remark });
+    }
+    renderAdminView(pending);
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
