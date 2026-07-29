@@ -289,16 +289,26 @@ function taskCard(t, isRejected) {
 }
 
 async function markDone(row, btn) {
+  const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
-    const data = await callApi('markDone', { row });
-    renderDoerView(data.today, data.rejected);
+    await callApi('markDone', { row });
+    card.style.transition = 'opacity .2s ease';
+    card.style.opacity = '0';
+    setTimeout(() => { card.remove(); updateStatRow(); }, 180);
   } catch (err) {
     alert(err.message);
     btn.disabled = false;
     btn.textContent = 'Done ✓';
   }
+}
+
+function updateStatRow() {
+  const dueBox = document.querySelector('.stat-box.ok .stat-num');
+  const warnBox = document.querySelector('.stat-box.warn .stat-num');
+  if (dueBox) dueBox.textContent = document.querySelectorAll('.card:not(.rejected)').length;
+  if (warnBox) warnBox.textContent = document.querySelectorAll('.card.rejected').length;
 }
 
 // ------------------------------------------------------------
@@ -350,16 +360,26 @@ function renderAdminView(pending) {
 }
 
 async function decide(row, approve, btn) {
+  const card = btn.closest('.card');
   btn.disabled = true;
   try {
-    let pending;
     if (approve) {
-      pending = await callApi('approve', { row });
+      await callApi('approve', { row });
     } else {
       const remark = prompt('Reason for declining (optional):') || '';
-      pending = await callApi('reject', { row, remark });
+      await callApi('reject', { row, remark });
     }
-    renderAdminView(pending);
+    card.style.transition = 'opacity .2s ease';
+    card.style.opacity = '0';
+    setTimeout(() => {
+      card.remove();
+      const countEl = document.querySelector('.stat-box.warn .stat-num');
+      const remaining = document.querySelectorAll('#app .card').length;
+      if (countEl) countEl.textContent = remaining;
+      if (remaining === 0) {
+        document.getElementById('app').insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing pending.</div>');
+      }
+    }, 180);
   } catch (err) {
     alert(err.message);
     btn.disabled = false;
