@@ -36,19 +36,19 @@
 
 <div id="signedOut" class="center">
   <h2>Daily Task App</h2>
-  <p>Continue karne ke liye Google se sign in karein.</p>
+  <p>Sign in with Google to continue.</p>
   <div id="g_id_signin_container"></div>
   <div id="errorBox"></div>
 </div>
 
 <div id="signedIn" style="display:none">
   <header>
-    <h1 id="pageTitle">Mere Aaj Ke Kaam</h1>
+    <h1 id="pageTitle">My Tasks Today</h1>
     <span class="email" id="userEmailLabel"></span>
   </header>
   <div class="container">
     <div class="install-tip">
-      📲 App jaisa shortcut ke liye: browser menu me "Add to Home Screen" / "Install" par tap karein.
+      📲 For an app-like shortcut: tap "Add to Home Screen" / "Install" in your browser menu.
     </div>
     <div id="app"><div class="empty">Loading...</div></div>
   </div>
@@ -94,7 +94,7 @@ function handleCredentialResponse(response) {
   document.getElementById('signedOut').style.display = 'none';
   document.getElementById('signedIn').style.display = 'block';
   document.getElementById('userEmailLabel').textContent = userEmail;
-  document.getElementById('pageTitle').textContent = isAdmin ? "Approval Panel" : "Mere Aaj Ke Kaam";
+  document.getElementById('pageTitle').textContent = isAdmin ? "Approval Panel" : "My Tasks Today";
 
   if (isAdmin) loadAdminView(); else loadDoerView();
 }
@@ -133,12 +133,12 @@ async function loadDoerView() {
 function renderDoerView(todayTasks, rejectedTasks) {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Aaj Ke Task</div>');
-  if (todayTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">Aaj koi pending task nahi hai. 🎉</div>');
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today's Tasks</div>');
+  if (todayTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">No pending tasks today. 🎉</div>');
   todayTasks.forEach(t => app.appendChild(taskCard(t, false)));
 
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Rejected Tasks (dubara karein)</div>');
-  if (rejectedTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">Koi rejected task nahi hai.</div>');
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Rejected Tasks (redo required)</div>');
+  if (rejectedTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">No rejected tasks.</div>');
   rejectedTasks.forEach(t => app.appendChild(taskCard(t, true)));
 }
 
@@ -152,7 +152,7 @@ function taskCard(t, isRejected) {
   actions.className = 'actions';
   const btn = document.createElement('button');
   btn.className = 'btn-done';
-  btn.textContent = isRejected ? 'Dubara Done Mark Karein' : 'Done ✓';
+  btn.textContent = isRejected ? 'Mark Done Again' : 'Done ✓';
   btn.onclick = () => markDone(t.row, btn);
   actions.appendChild(btn);
   card.appendChild(actions);
@@ -187,8 +187,8 @@ async function loadAdminView() {
 function renderAdminView(pending) {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Approval Ke Liye Pending (' + pending.length + ')</div>');
-  if (pending.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">Sab clear hai, koi pending approval nahi. ✅</div>');
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Pending Approval (' + pending.length + ')</div>');
+  if (pending.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">All clear, no pending approvals. ✅</div>');
 
   pending.forEach(t => {
     const card = document.createElement('div');
@@ -218,7 +218,7 @@ async function decide(row, approve, btn) {
     if (approve) {
       pending = await callApi('approve', { row });
     } else {
-      const remark = prompt('Decline karne ki wajah (optional):') || '';
+      const remark = prompt('Reason for declining (optional):') || '';
       pending = await callApi('reject', { row, remark });
     }
     renderAdminView(pending);
