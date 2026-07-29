@@ -266,6 +266,7 @@
 // CONFIG
 // ============================================================
 const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleusercontent.com";
+// ✅ YAHAN APNA LATEST WEB APP URL DAALEIN
 const API_URL = "https://script.google.com/macros/s/AKfycbwmL_WFZqZMNFl2-lOe0vWLWQHq50srOinFk3ZnO7eZ-Xti2gXfo8a4BhIMsbzeH0XdTA/exec";
 
 const ADMIN_EMAIL = "pc@satijapaper.com";
@@ -281,8 +282,27 @@ let idToken = null;
 let userEmail = null;
 let isAdmin = false;
 
+// --- GLOBAL DATE VARIABLES & FUNCTIONS ---
+let selectedDateStr = new Date().toISOString().split('T')[0]; // Default: Aaj ki date
+
+function getFormattedDDMMYYYY(ymd) {
+  if (!ymd) return "";
+  const parts = ymd.split('-');
+  return parts.length === 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : "";
+}
+
+function isBeforeDate(ddmmyyyy, yyyymmdd) {
+  if (!ddmmyyyy) return false;
+  const parts = ddmmyyyy.split('/');
+  if (parts.length !== 3) return false;
+  const taskDate = parts[2] + '-' + parts[1] + '-' + parts[0];
+  return taskDate < yyyymmdd;
+}
+
+// --- STATE Caches ---
 let adminFilter = "All";
 let adminPendingCache = [];
+let adminOverdueCache = [];
 
 let doerFilter = "All";
 let doerTodayCache = [];
@@ -324,7 +344,6 @@ window.addEventListener('load', () => {
 
   document.getElementById('logoutBtn').onclick = logout;
 
-  // Try to resume a previous session so a page refresh doesn't sign the user out
   const saved = localStorage.getItem(TOKEN_STORAGE_KEY);
   if (saved) {
     try {
@@ -333,7 +352,7 @@ window.addEventListener('load', () => {
         signInWithToken(saved);
         return;
       }
-    } catch (e) { /* fall through to normal sign-in screen */ }
+    } catch (e) { }
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
 });
@@ -366,10 +385,6 @@ function logout() {
   document.getElementById('signedIn').style.display = 'none';
   document.getElementById('signedOut').style.display = 'flex';
   document.getElementById('errorBox').innerHTML = '';
-}
-
-function showError(msg) {
-  document.getElementById('errorBox').innerHTML = '<div class="error-box">' + msg + '</div>';
 }
 
 // ------------------------------------------------------------
@@ -429,37 +444,63 @@ async function loadDoerView() {
 function renderDoerView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  const allItems = doerTodayCache.concat(doerRejectedCache, doerOverdueCache);
+
+  const dateTarget = getFormattedDDMMYYYY(selectedDateStr);
+  
+  const allDoerTasks = [...doerTodayCache, ...doerRejectedCache, ...doerOverdueCache];
+  const uniqueTasks = Array.from(new Map(allDoerTasks.map(t => [t.row, t])).values());
+
+  let targetTasks = [];
+  let overdueTasks = [];
+  let rejectedTasks = [];
+
+  uniqueTasks.forEach(t => {
+    if (doerFilter !== "All" && t.freq !== doerFilter) return;
+    
+    if (t.status === "Rejected") {
+      rejectedTasks.push(t);
+    } else if (t.planned === dateTarget) {
+      targetTasks.push(t);
+    } else if (isBeforeDate(t.planned, selectedDateStr)) {
+      overdueTasks.push(t);
+    }
+  });
 
   app.insertAdjacentHTML('beforeend',
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 18px;">' +
+      '<div class="section-title" style="margin:0;">Filter by Date</div>' +
+      '<input type="date" id="doerDateInput" value="' + selectedDateStr + '" ' +
+      'style="padding: 7px 12px; border: 1.5px solid var(--line); border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 700; color: var(--ink); background: var(--card); cursor: pointer; outline: none;">' +
+    '</div>' +
     '<div class="stat-row">' +
-      '<div class="stat-box warn"><div class="stat-num">' + doerOverdueCache.length + '</div><div class="stat-label">Overdue</div></div>' +
-      '<div class="stat-box warn"><div class="stat-num">' + doerRejectedCache.length + '</div><div class="stat-label">To redo</div></div>' +
-      '<div class="stat-box ok"><div class="stat-num">' + doerTodayCache.length + '</div><div class="stat-label">Due today</div></div>' +
+      '<div class="stat-box warn"><div class="stat-num">' + overdueTasks.length + '</div><div class="stat-label">Overdue</div></div>' +
+      '<div class="stat-box warn"><div class="stat-num">' + rejectedTasks.length + '</div><div class="stat-label">To redo</div></div>' +
+      '<div class="stat-box ok"><div class="stat-num">' + targetTasks.length + '</div><div class="stat-label">Tasks</div></div>' +
     '</div>'
   );
 
-  renderFilterRow(app, allItems, doerFilter, (freq) => { doerFilter = freq; renderDoerView(); });
+  document.getElementById('doerDateInput').onchange = (e) => {
+    selectedDateStr = e.target.value;
+    renderDoerView();
+  };
 
-  const todayFiltered = doerFilter === "All" ? doerTodayCache : doerTodayCache.filter(t => t.freq === doerFilter);
-  const rejectedFiltered = doerFilter === "All" ? doerRejectedCache : doerRejectedCache.filter(t => t.freq === doerFilter);
-  const overdueFiltered = doerFilter === "All" ? doerOverdueCache : doerOverdueCache.filter(t => t.freq === doerFilter);
+  renderFilterRow(app, uniqueTasks, doerFilter, (freq) => { doerFilter = freq; renderDoerView(); });
 
-  if (overdueFiltered.length > 0) {
+  if (overdueTasks.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⏰ Overdue — missed, please complete</div>');
-    overdueFiltered.forEach(t => app.appendChild(taskCard(t, 'overdue')));
+    overdueTasks.forEach(t => app.appendChild(taskCard(t, 'overdue')));
   }
 
-  if (rejectedFiltered.length > 0) {
+  if (rejectedTasks.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⚠ Rejected — redo required</div>');
-    rejectedFiltered.forEach(t => app.appendChild(taskCard(t, 'rejected')));
+    rejectedTasks.forEach(t => app.appendChild(taskCard(t, 'rejected')));
   }
 
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
-  if (todayFiltered.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks in this view.</div>');
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">📋 Tasks for ' + (dateTarget || 'Selected Date') + '</div>');
+  if (targetTasks.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks for this date.</div>');
   }
-  todayFiltered.forEach(t => app.appendChild(taskCard(t, 'today')));
+  targetTasks.forEach(t => app.appendChild(taskCard(t, 'today')));
 }
 
 function taskCard(t, kind) {
@@ -501,11 +542,8 @@ async function markDone(row, kind, btn) {
 }
 
 // ------------------------------------------------------------
-// ADMIN VIEW — grouped by user, with frequency filter + legend
+// ADMIN VIEW
 // ------------------------------------------------------------
-let adminTab = "approvals"; // 'approvals' | 'overdue'
-let adminOverdueCache = [];
-
 async function loadAdminView() {
   try {
     const [pending, overdue] = await Promise.all([
@@ -532,40 +570,70 @@ function renderAdminView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
 
-  app.insertAdjacentHTML('beforeend',
-    '<div class="stat-row">' +
-      '<div class="stat-box ' + (adminTab === 'approvals' ? 'ok' : 'warn') + '" id="tabApprovals" style="cursor:pointer">' +
-        '<div class="stat-num">' + adminPendingCache.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
-      '<div class="stat-box warn" id="tabOverdue" style="cursor:pointer">' +
-        '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
-    '</div>'
-  );
-  document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; adminFilter = 'All'; renderAdminView(); };
-  document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; adminFilter = 'All'; renderAdminView(); };
+  const dateTarget = getFormattedDDMMYYYY(selectedDateStr);
 
-  const source = adminTab === 'approvals' ? adminPendingCache : adminOverdueCache;
-  renderFilterRow(app, source, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
+  let targetPending = [];
+  let overdueAdmin = [];
 
-  const filtered = adminFilter === "All" ? source : source.filter(t => t.freq === adminFilter);
-
-  app.insertAdjacentHTML('beforeend',
-    '<div class="section-title">' + (adminTab === 'approvals' ? 'Pending Approval' : '⏰ Overdue — not yet done by anyone') + '</div>'
-  );
-  if (filtered.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing here.</div>');
-    return;
-  }
-
-  const groups = new Map();
-  filtered.forEach(t => {
-    const key = t.email;
-    if (!groups.has(key)) groups.set(key, { name: t.name, email: t.email, tasks: [] });
-    groups.get(key).tasks.push(t);
+  adminPendingCache.forEach(t => {
+    if (adminFilter !== "All" && t.freq !== adminFilter) return;
+    if (t.planned === dateTarget || isBeforeDate(t.planned, selectedDateStr)) {
+      targetPending.push(t);
+    }
   });
 
-  [...groups.values()]
-    .sort((a, b) => b.tasks.length - a.tasks.length)
-    .forEach(g => app.appendChild(userGroupTile(g, adminTab)));
+  adminOverdueCache.forEach(t => {
+    if (adminFilter !== "All" && t.freq !== adminFilter) return;
+    if (isBeforeDate(t.planned, selectedDateStr)) {
+      overdueAdmin.push(t);
+    }
+  });
+
+  app.insertAdjacentHTML('beforeend',
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 18px;">' +
+      '<div class="section-title" style="margin:0;">Filter by Date</div>' +
+      '<input type="date" id="adminDateInput" value="' + selectedDateStr + '" ' +
+      'style="padding: 7px 12px; border: 1.5px solid var(--line); border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 700; color: var(--ink); background: var(--card); cursor: pointer; outline: none;">' +
+    '</div>' +
+    '<div class="stat-row">' +
+      '<div class="stat-box warn"><div class="stat-num">' + overdueAdmin.length + '</div><div class="stat-label">Overdue</div></div>' +
+      '<div class="stat-box ok"><div class="stat-num">' + targetPending.length + '</div><div class="stat-label">Approvals</div></div>' +
+    '</div>'
+  );
+
+  document.getElementById('adminDateInput').onchange = (e) => {
+    selectedDateStr = e.target.value;
+    renderAdminView();
+  };
+
+  const combinedAdminTasks = [...targetPending, ...overdueAdmin];
+  renderFilterRow(app, combinedAdminTasks, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⏰ Overdue — not yet done by anyone</div>');
+  if (overdueAdmin.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No overdue tasks.</div>');
+  } else {
+    const groupsOverdue = new Map();
+    overdueAdmin.forEach(t => {
+      if (!groupsOverdue.has(t.email)) groupsOverdue.set(t.email, { name: t.name, email: t.email, tasks: [] });
+      groupsOverdue.get(t.email).tasks.push(t);
+    });
+    [...groupsOverdue.values()].sort((a, b) => b.tasks.length - a.tasks.length)
+      .forEach(g => app.appendChild(userGroupTile(g, 'overdue')));
+  }
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">📋 Pending Approval for ' + (dateTarget || 'Selected Date') + '</div>');
+  if (targetPending.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No approvals pending.</div>');
+  } else {
+    const groupsPending = new Map();
+    targetPending.forEach(t => {
+      if (!groupsPending.has(t.email)) groupsPending.set(t.email, { name: t.name, email: t.email, tasks: [] });
+      groupsPending.get(t.email).tasks.push(t);
+    });
+    [...groupsPending.values()].sort((a, b) => b.tasks.length - a.tasks.length)
+      .forEach(g => app.appendChild(userGroupTile(g, 'approvals')));
+  }
 }
 
 function userGroupTile(group, mode) {
