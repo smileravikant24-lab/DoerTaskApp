@@ -287,6 +287,7 @@ let adminPendingCache = [];
 let doerFilter = "All";
 let doerTodayCache = [];
 let doerRejectedCache = [];
+let doerOverdueCache = [];
 
 // ------------------------------------------------------------
 // TOASTS
@@ -416,6 +417,7 @@ async function loadDoerView() {
     const data = await callApi('dashboard');
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
+    doerOverdueCache = data.overdue || [];
     doerFilter = "All";
     renderDoerView();
   } catch (err) {
@@ -427,10 +429,11 @@ async function loadDoerView() {
 function renderDoerView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  const allItems = doerTodayCache.concat(doerRejectedCache);
+  const allItems = doerTodayCache.concat(doerRejectedCache, doerOverdueCache);
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
+      '<div class="stat-box warn"><div class="stat-num">' + doerOverdueCache.length + '</div><div class="stat-label">Overdue</div></div>' +
       '<div class="stat-box warn"><div class="stat-num">' + doerRejectedCache.length + '</div><div class="stat-label">To redo</div></div>' +
       '<div class="stat-box ok"><div class="stat-num">' + doerTodayCache.length + '</div><div class="stat-label">Due today</div></div>' +
     '</div>'
@@ -440,43 +443,51 @@ function renderDoerView() {
 
   const todayFiltered = doerFilter === "All" ? doerTodayCache : doerTodayCache.filter(t => t.freq === doerFilter);
   const rejectedFiltered = doerFilter === "All" ? doerRejectedCache : doerRejectedCache.filter(t => t.freq === doerFilter);
+  const overdueFiltered = doerFilter === "All" ? doerOverdueCache : doerOverdueCache.filter(t => t.freq === doerFilter);
+
+  if (overdueFiltered.length > 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⏰ Overdue — missed, please complete</div>');
+    overdueFiltered.forEach(t => app.appendChild(taskCard(t, 'overdue')));
+  }
 
   if (rejectedFiltered.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⚠ Rejected — redo required</div>');
-    rejectedFiltered.forEach(t => app.appendChild(taskCard(t, true)));
+    rejectedFiltered.forEach(t => app.appendChild(taskCard(t, 'rejected')));
   }
 
   app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
   if (todayFiltered.length === 0) {
     app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks in this view.</div>');
   }
-  todayFiltered.forEach(t => app.appendChild(taskCard(t, false)));
+  todayFiltered.forEach(t => app.appendChild(taskCard(t, 'today')));
 }
 
-function taskCard(t, isRejected) {
+function taskCard(t, kind) {
   const card = document.createElement('div');
-  card.className = isRejected ? 'card rejected' : 'card';
+  card.className = (kind === 'today') ? 'card' : 'card rejected';
+  const badge = kind === 'rejected' ? '<span class="badge">Rejected</span>' : (kind === 'overdue' ? '<span class="badge">Overdue</span>' : '');
   card.innerHTML =
-    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + (isRejected ? '<span class="badge">Rejected</span>' : '') + '</div>' +
+    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + badge + '</div>' +
     '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '</div>';
   const actions = document.createElement('div');
   actions.className = 'actions';
   const btn = document.createElement('button');
   btn.className = 'btn-done';
-  btn.textContent = isRejected ? 'Mark Done Again' : 'Done ✓';
-  btn.onclick = () => markDone(t.row, isRejected, btn);
+  btn.textContent = (kind === 'today') ? 'Done ✓' : 'Mark Done Now';
+  btn.onclick = () => markDone(t.row, kind, btn);
   actions.appendChild(btn);
   card.appendChild(actions);
   return card;
 }
 
-async function markDone(row, isRejected, btn) {
+async function markDone(row, kind, btn) {
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
     await callApi('markDone', { row });
-    if (isRejected) doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
+    if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
+    else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.row !== row);
     else doerTodayCache = doerTodayCache.filter(t => t.row !== row);
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
@@ -485,17 +496,24 @@ async function markDone(row, isRejected, btn) {
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
-    btn.textContent = isRejected ? 'Mark Done Again' : 'Done ✓';
+    btn.textContent = (kind === 'today') ? 'Done ✓' : 'Mark Done Now';
   }
 }
 
 // ------------------------------------------------------------
 // ADMIN VIEW — grouped by user, with frequency filter + legend
 // ------------------------------------------------------------
+let adminTab = "approvals"; // 'approvals' | 'overdue'
+let adminOverdueCache = [];
+
 async function loadAdminView() {
   try {
-    const pending = await callApi('pendingApprovals');
+    const [pending, overdue] = await Promise.all([
+      callApi('pendingApprovals'),
+      callApi('overdueSummary')
+    ]);
     adminPendingCache = pending;
+    adminOverdueCache = overdue;
     adminFilter = "All";
     renderAdminView();
   } catch (err) {
@@ -513,21 +531,28 @@ function initials(name) {
 function renderAdminView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  const pending = adminPendingCache;
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
-      '<div class="stat-box warn"><div class="stat-num">' + pending.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
+      '<div class="stat-box ' + (adminTab === 'approvals' ? 'ok' : 'warn') + '" id="tabApprovals" style="cursor:pointer">' +
+        '<div class="stat-num">' + adminPendingCache.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
+      '<div class="stat-box warn" id="tabOverdue" style="cursor:pointer">' +
+        '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
     '</div>'
   );
+  document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; adminFilter = 'All'; renderAdminView(); };
+  document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; adminFilter = 'All'; renderAdminView(); };
 
-  renderFilterRow(app, pending, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
+  const source = adminTab === 'approvals' ? adminPendingCache : adminOverdueCache;
+  renderFilterRow(app, source, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
 
-  const filtered = adminFilter === "All" ? pending : pending.filter(t => t.freq === adminFilter);
+  const filtered = adminFilter === "All" ? source : source.filter(t => t.freq === adminFilter);
 
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Pending Approval</div>');
+  app.insertAdjacentHTML('beforeend',
+    '<div class="section-title">' + (adminTab === 'approvals' ? 'Pending Approval' : '⏰ Overdue — not yet done by anyone') + '</div>'
+  );
   if (filtered.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing pending.</div>');
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing here.</div>');
     return;
   }
 
@@ -540,10 +565,10 @@ function renderAdminView() {
 
   [...groups.values()]
     .sort((a, b) => b.tasks.length - a.tasks.length)
-    .forEach(g => app.appendChild(userGroupTile(g)));
+    .forEach(g => app.appendChild(userGroupTile(g, adminTab)));
 }
 
-function userGroupTile(group) {
+function userGroupTile(group, mode) {
   const wrap = document.createElement('div');
   wrap.className = 'group';
   const header = document.createElement('div');
@@ -557,11 +582,20 @@ function userGroupTile(group) {
 
   const body = document.createElement('div');
   body.className = 'group-body';
-  group.tasks.forEach(t => body.appendChild(adminTaskCard(t)));
+  group.tasks.forEach(t => body.appendChild(mode === 'approvals' ? adminTaskCard(t) : overdueTaskCard(t)));
 
   wrap.appendChild(header);
   wrap.appendChild(body);
   return wrap;
+}
+
+function overdueTaskCard(t) {
+  const card = document.createElement('div');
+  card.className = 'card rejected';
+  card.innerHTML =
+    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Overdue</span></div>' +
+    '<div class="meta">' + t.department + '<span class="dot">•</span>Was planned ' + t.planned + '</div>';
+  return card;
 }
 
 function adminTaskCard(t) {
