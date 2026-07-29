@@ -31,7 +31,7 @@
     color: var(--text);
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, .brand, .task-name, .stat-num { font-family: "Manrope", -apple-system, sans-serif; }
+  h1, h2, .brand, .task-name, .stat-num, .group-name { font-family: "Manrope", -apple-system, sans-serif; }
 
   header {
     background: linear-gradient(135deg, var(--ink) 0%, var(--ink-light) 100%);
@@ -44,21 +44,28 @@
     top: 0;
     z-index: 5;
     box-shadow: 0 2px 12px rgba(30,42,68,0.18);
+    gap: 10px;
   }
-  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .brand-icon {
     width: 34px; height: 34px; border-radius: 9px;
     background: rgba(255,255,255,0.14);
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  header h1 { font-size: 17px; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  header h1 { font-size: 17px; font-weight: 800; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   header .email {
     font-size: 11.5px; opacity: .85; background: rgba(255,255,255,0.1);
     padding: 5px 10px; border-radius: 999px; white-space: nowrap;
   }
+  .logout-btn {
+    background: rgba(255,255,255,0.14); color: #fff; border: none; border-radius: 999px;
+    padding: 6px 13px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .logout-btn:hover { background: rgba(255,255,255,0.24); }
 
-  .container { max-width: 640px; margin: 0 auto; padding: 18px 16px 40px; }
+  .container { max-width: 680px; margin: 0 auto; padding: 18px 16px 40px; }
 
   .install-tip {
     font-size: 12.5px; color: var(--ink-light);
@@ -67,7 +74,7 @@
     display: flex; align-items: center; gap: 8px;
   }
 
-  .stat-row { display: flex; gap: 10px; margin-bottom: 22px; }
+  .stat-row { display: flex; gap: 10px; margin-bottom: 18px; }
   .stat-box {
     flex: 1; background: var(--card); border: 1px solid var(--line);
     border-radius: 12px; padding: 12px 14px;
@@ -84,15 +91,64 @@
   .section-title:first-of-type { margin-top: 0; }
   .section-title.warn { color: var(--amber); }
 
+  /* --- Filter chips + legend --- */
+  .filter-row { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 16px; }
+  .chip {
+    font-size: 12px; font-weight: 700; padding: 6px 13px; border-radius: 999px;
+    background: var(--card); border: 1.5px solid var(--line); color: var(--muted);
+    cursor: pointer; transition: all .12s ease; white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--ink-light); color: var(--ink); }
+  .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .legend-btn {
+    margin-left: auto; font-size: 12px; font-weight: 700; color: var(--ink-light);
+    background: none; border: none; cursor: pointer; padding: 6px 4px; text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .legend-panel {
+    background: #F1F4F9; border: 1px solid #DEE4EE; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 16px; font-size: 12px; color: var(--ink-light);
+    display: none;
+  }
+  .legend-panel.open { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 6px 14px; }
+  .legend-panel b { color: var(--ink); }
+
+  /* --- User group tiles (admin) --- */
+  .group {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    margin-bottom: 14px; overflow: hidden; animation: rise .25s ease both;
+  }
+  .group-header {
+    padding: 13px 16px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; user-select: none;
+  }
+  .group-avatar {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--ink);
+    color: #fff; font-size: 13px; font-weight: 800; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .group-info { flex: 1; min-width: 0; }
+  .group-name { font-size: 14.5px; font-weight: 700; }
+  .group-email { font-size: 11.5px; color: var(--muted); }
+  .group-count {
+    font-size: 11.5px; font-weight: 700; background: var(--amber-bg); color: var(--amber);
+    padding: 3px 10px; border-radius: 999px; flex-shrink: 0;
+  }
+  .group-chevron { color: var(--muted); transition: transform .2s ease; flex-shrink: 0; }
+  .group.collapsed .group-chevron { transform: rotate(-90deg); }
+  .group-body { border-top: 1px solid var(--line); padding: 4px 12px 10px; }
+  .group.collapsed .group-body { display: none; }
+
   .card {
     background: var(--card);
     border-radius: 12px;
     padding: 15px 16px;
-    margin-bottom: 10px;
+    margin: 10px 0;
     border-left: 4px solid var(--ink);
     box-shadow: 0 1px 2px rgba(30,20,10,0.05);
-    animation: rise .25s ease both;
+    animation: rise .2s ease both;
   }
+  .group .card { box-shadow: none; border: 1px solid var(--line); border-left: 4px solid var(--ink); }
   .card.rejected { border-left-color: var(--amber); background: linear-gradient(0deg, var(--amber-bg) 0%, var(--card) 55%); }
   @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -100,6 +156,11 @@
   .card .meta { font-size: 12px; color: var(--muted); margin-top: 5px; }
   .card .meta .dot { margin: 0 5px; opacity: .6; }
   .card .actions { margin-top: 12px; display: flex; gap: 8px; }
+  .freq-tag {
+    display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 7px;
+    border-radius: 5px; background: #E7ECF4; color: var(--ink-light); margin-left: 7px;
+    text-transform: uppercase; letter-spacing: .02em; vertical-align: middle;
+  }
 
   button {
     border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px;
@@ -142,6 +203,27 @@
     margin-top: 16px; max-width: 380px; font-size: 13.5px; border: 1px solid #F1D4CC;
   }
   #g_id_signin_container { display: flex; justify-content: center; }
+
+  /* --- Toasts --- */
+  #toastHost {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px; z-index: 999;
+    width: 100%; max-width: 380px; padding: 0 16px; align-items: center;
+  }
+  .toast {
+    width: 100%; background: var(--ink); color: #fff; border-radius: 10px;
+    padding: 12px 14px; font-size: 13.5px; font-weight: 600;
+    box-shadow: 0 8px 24px rgba(20,25,40,0.25);
+    display: flex; align-items: center; gap: 9px;
+    animation: toastIn .25s cubic-bezier(.2,.9,.3,1.2) both;
+  }
+  .toast.leaving { animation: toastOut .2s ease both; }
+  .toast .t-icon { flex-shrink: 0; }
+  .toast.success { background: var(--green-dark); }
+  .toast.error { background: var(--red); }
+  .toast.info { background: var(--ink); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes toastOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(8px); } }
 </style>
 </head>
 <body>
@@ -164,7 +246,10 @@
       </div>
       <h1 id="pageTitle">My Tasks Today</h1>
     </div>
-    <span class="email" id="userEmailLabel"></span>
+    <div class="header-right">
+      <span class="email" id="userEmailLabel"></span>
+      <button class="logout-btn" id="logoutBtn">Logout</button>
+    </div>
   </header>
   <div class="container">
     <div class="install-tip">
@@ -174,6 +259,8 @@
   </div>
 </div>
 
+<div id="toastHost"></div>
+
 <script>
 // ============================================================
 // CONFIG
@@ -182,14 +269,48 @@ const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleuser
 const API_URL = "https://script.google.com/macros/s/AKfycbwmL_WFZqZMNFl2-lOe0vWLWQHq50srOinFk3ZnO7eZ-Xti2gXfo8a4BhIMsbzeH0XdTA/exec";
 
 const ADMIN_EMAIL = "pc@satijapaper.com";
+const TOKEN_STORAGE_KEY = "doerAppIdToken";
+
+const FREQ_LABELS = {
+  D: "Daily", W: "Weekly", F: "Fortnightly", M: "Monthly", Q: "Quarterly", Y: "Yearly",
+  E1st: "1st weekday/mo", E2nd: "2nd weekday/mo", E3rd: "3rd weekday/mo",
+  E4th: "4th weekday/mo", ELast: "Last weekday/mo"
+};
 
 let idToken = null;
 let userEmail = null;
 let isAdmin = false;
 
+let adminFilter = "All";
+let adminPendingCache = [];
+
+let doerFilter = "All";
+let doerTodayCache = [];
+let doerRejectedCache = [];
+
 // ------------------------------------------------------------
-// GOOGLE SIGN-IN
+// TOASTS
 // ------------------------------------------------------------
+function toast(message, type = "info") {
+  const host = document.getElementById('toastHost');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  const icon = type === 'success' ? '✓' : (type === 'error' ? '✕' : 'ℹ');
+  el.innerHTML = '<span class="t-icon">' + icon + '</span><span>' + message + '</span>';
+  host.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 220);
+  }, 3200);
+}
+
+// ------------------------------------------------------------
+// GOOGLE SIGN-IN + PERSISTED SESSION
+// ------------------------------------------------------------
+function decodeJwt(token) {
+  return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+}
+
 window.addEventListener('load', () => {
   google.accounts.id.initialize({
     client_id: CLIENT_ID,
@@ -199,12 +320,31 @@ window.addEventListener('load', () => {
     document.getElementById('g_id_signin_container'),
     { theme: "filled_black", size: "large", text: "signin_with", shape: "pill" }
   );
+
+  document.getElementById('logoutBtn').onclick = logout;
+
+  // Try to resume a previous session so a page refresh doesn't sign the user out
+  const saved = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (saved) {
+    try {
+      const payload = decodeJwt(saved);
+      if (payload.exp && payload.exp * 1000 > Date.now()) {
+        signInWithToken(saved);
+        return;
+      }
+    } catch (e) { /* fall through to normal sign-in screen */ }
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
 });
 
 function handleCredentialResponse(response) {
-  idToken = response.credential;
+  localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
+  signInWithToken(response.credential);
+}
 
-  const payload = JSON.parse(atob(idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+function signInWithToken(token) {
+  idToken = token;
+  const payload = decodeJwt(idToken);
   userEmail = payload.email;
   isAdmin = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -214,6 +354,17 @@ function handleCredentialResponse(response) {
   document.getElementById('pageTitle').textContent = isAdmin ? "Approval Panel" : "My Tasks Today";
 
   if (isAdmin) loadAdminView(); else loadDoerView();
+}
+
+function logout() {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  idToken = null; userEmail = null; isAdmin = false;
+  if (window.google && google.accounts && google.accounts.id) {
+    google.accounts.id.disableAutoSelect();
+  }
+  document.getElementById('signedIn').style.display = 'none';
+  document.getElementById('signedOut').style.display = 'flex';
+  document.getElementById('errorBox').innerHTML = '';
 }
 
 function showError(msg) {
@@ -236,96 +387,133 @@ async function callApi(action, params = {}) {
 }
 
 // ------------------------------------------------------------
+// SHARED: filter chips + legend
+// ------------------------------------------------------------
+function renderFilterRow(container, itemsForCounts, currentFilter, onSelect) {
+  const freqsPresent = [...new Set(itemsForCounts.map(t => t.freq).filter(Boolean))];
+  let html = '<div class="filter-row"><div class="chip ' + (currentFilter === "All" ? "active" : "") + '" data-freq="All">All (' + itemsForCounts.length + ')</div>';
+  freqsPresent.forEach(f => {
+    const count = itemsForCounts.filter(t => t.freq === f).length;
+    html += '<div class="chip ' + (currentFilter === f ? "active" : "") + '" data-freq="' + f + '">' + (FREQ_LABELS[f] || f) + ' (' + count + ')</div>';
+  });
+  html += '<button class="legend-btn" id="legendToggle">Legend</button></div>';
+  html += '<div class="legend-panel" id="legendPanel">' +
+    Object.entries(FREQ_LABELS).map(([code, label]) => '<div><b>' + code + '</b> — ' + label + '</div>').join('') +
+    '</div>';
+  container.insertAdjacentHTML('beforeend', html);
+
+  container.querySelectorAll('.chip').forEach(chip => {
+    chip.onclick = () => onSelect(chip.dataset.freq);
+  });
+  document.getElementById('legendToggle').onclick = () => document.getElementById('legendPanel').classList.toggle('open');
+}
+
+// ------------------------------------------------------------
 // DOER VIEW
 // ------------------------------------------------------------
 async function loadDoerView() {
   try {
     const data = await callApi('dashboard');
-    renderDoerView(data.today, data.rejected);
+    doerTodayCache = data.today;
+    doerRejectedCache = data.rejected;
+    doerFilter = "All";
+    renderDoerView();
   } catch (err) {
     document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    toast(err.message, 'error');
   }
 }
 
-function renderDoerView(todayTasks, rejectedTasks) {
+function renderDoerView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
+  const allItems = doerTodayCache.concat(doerRejectedCache);
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
-      '<div class="stat-box warn"><div class="stat-num">' + rejectedTasks.length + '</div><div class="stat-label">To redo</div></div>' +
-      '<div class="stat-box ok"><div class="stat-num">' + todayTasks.length + '</div><div class="stat-label">Due today</div></div>' +
+      '<div class="stat-box warn"><div class="stat-num">' + doerRejectedCache.length + '</div><div class="stat-label">To redo</div></div>' +
+      '<div class="stat-box ok"><div class="stat-num">' + doerTodayCache.length + '</div><div class="stat-label">Due today</div></div>' +
     '</div>'
   );
 
-  // Rejected tasks first — these need attention before anything else
-  if (rejectedTasks.length > 0) {
+  renderFilterRow(app, allItems, doerFilter, (freq) => { doerFilter = freq; renderDoerView(); });
+
+  const todayFiltered = doerFilter === "All" ? doerTodayCache : doerTodayCache.filter(t => t.freq === doerFilter);
+  const rejectedFiltered = doerFilter === "All" ? doerRejectedCache : doerRejectedCache.filter(t => t.freq === doerFilter);
+
+  if (rejectedFiltered.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⚠ Rejected — redo required</div>');
-    rejectedTasks.forEach(t => app.appendChild(taskCard(t, true)));
+    rejectedFiltered.forEach(t => app.appendChild(taskCard(t, true)));
   }
 
   app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
-  if (todayTasks.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks today. Nicely done.</div>');
+  if (todayFiltered.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks in this view.</div>');
   }
-  todayTasks.forEach(t => app.appendChild(taskCard(t, false)));
+  todayFiltered.forEach(t => app.appendChild(taskCard(t, false)));
 }
 
 function taskCard(t, isRejected) {
   const card = document.createElement('div');
   card.className = isRejected ? 'card rejected' : 'card';
   card.innerHTML =
-    '<div class="task-name">' + t.task + (isRejected ? '<span class="badge">Rejected</span>' : '') + '</div>' +
-    '<div class="meta">' + t.department + '<span class="dot">•</span>' + (t.freq || '') + '<span class="dot">•</span>Planned ' + t.planned + '</div>';
+    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + (isRejected ? '<span class="badge">Rejected</span>' : '') + '</div>' +
+    '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '</div>';
   const actions = document.createElement('div');
   actions.className = 'actions';
   const btn = document.createElement('button');
   btn.className = 'btn-done';
   btn.textContent = isRejected ? 'Mark Done Again' : 'Done ✓';
-  btn.onclick = () => markDone(t.row, btn);
+  btn.onclick = () => markDone(t.row, isRejected, btn);
   actions.appendChild(btn);
   card.appendChild(actions);
   return card;
 }
 
-async function markDone(row, btn) {
+async function markDone(row, isRejected, btn) {
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
     await callApi('markDone', { row });
+    if (isRejected) doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
+    else doerTodayCache = doerTodayCache.filter(t => t.row !== row);
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
-    setTimeout(() => { card.remove(); updateStatRow(); }, 180);
+    setTimeout(() => renderDoerView(), 180);
+    toast('Task marked as done — sent for approval', 'success');
   } catch (err) {
-    alert(err.message);
+    toast(err.message, 'error');
     btn.disabled = false;
-    btn.textContent = 'Done ✓';
+    btn.textContent = isRejected ? 'Mark Done Again' : 'Done ✓';
   }
 }
 
-function updateStatRow() {
-  const dueBox = document.querySelector('.stat-box.ok .stat-num');
-  const warnBox = document.querySelector('.stat-box.warn .stat-num');
-  if (dueBox) dueBox.textContent = document.querySelectorAll('.card:not(.rejected)').length;
-  if (warnBox) warnBox.textContent = document.querySelectorAll('.card.rejected').length;
-}
-
 // ------------------------------------------------------------
-// ADMIN VIEW
+// ADMIN VIEW — grouped by user, with frequency filter + legend
 // ------------------------------------------------------------
 async function loadAdminView() {
   try {
     const pending = await callApi('pendingApprovals');
-    renderAdminView(pending);
+    adminPendingCache = pending;
+    adminFilter = "All";
+    renderAdminView();
   } catch (err) {
     document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    toast(err.message, 'error');
   }
 }
 
-function renderAdminView(pending) {
+function initials(name) {
+  if (!name) return "?";
+  const parts = String(name).replace(/^(Mr\.|Ms\.|Mrs\.)\s*/i, '').trim().split(/\s+/);
+  return (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
+}
+
+function renderAdminView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
+  const pending = adminPendingCache;
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
@@ -333,30 +521,66 @@ function renderAdminView(pending) {
     '</div>'
   );
 
+  renderFilterRow(app, pending, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
+
+  const filtered = adminFilter === "All" ? pending : pending.filter(t => t.freq === adminFilter);
+
   app.insertAdjacentHTML('beforeend', '<div class="section-title">Pending Approval</div>');
-  if (pending.length === 0) {
+  if (filtered.length === 0) {
     app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing pending.</div>');
+    return;
   }
 
-  pending.forEach(t => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML =
-      '<div class="task-name">' + t.task + '</div>' +
-      '<div class="meta">' + t.name + ' · ' + t.email + '<span class="dot">•</span>' + t.department + '</div>' +
-      '<div class="meta">Planned ' + t.planned + '<span class="dot">•</span>Actual ' + (t.actual || '—') + '</div>';
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const approveBtn = document.createElement('button');
-    approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
-    approveBtn.onclick = () => decide(t.row, true, approveBtn);
-    const rejectBtn = document.createElement('button');
-    rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
-    rejectBtn.onclick = () => decide(t.row, false, rejectBtn);
-    actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
-    card.appendChild(actions);
-    app.appendChild(card);
+  const groups = new Map();
+  filtered.forEach(t => {
+    const key = t.email;
+    if (!groups.has(key)) groups.set(key, { name: t.name, email: t.email, tasks: [] });
+    groups.get(key).tasks.push(t);
   });
+
+  [...groups.values()]
+    .sort((a, b) => b.tasks.length - a.tasks.length)
+    .forEach(g => app.appendChild(userGroupTile(g)));
+}
+
+function userGroupTile(group) {
+  const wrap = document.createElement('div');
+  wrap.className = 'group';
+  const header = document.createElement('div');
+  header.className = 'group-header';
+  header.innerHTML =
+    '<div class="group-avatar">' + initials(group.name) + '</div>' +
+    '<div class="group-info"><div class="group-name">' + group.name + '</div><div class="group-email">' + group.email + '</div></div>' +
+    '<div class="group-count">' + group.tasks.length + '</div>' +
+    '<div class="group-chevron">▾</div>';
+  header.onclick = () => wrap.classList.toggle('collapsed');
+
+  const body = document.createElement('div');
+  body.className = 'group-body';
+  group.tasks.forEach(t => body.appendChild(adminTaskCard(t)));
+
+  wrap.appendChild(header);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function adminTaskCard(t) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '</div>' +
+    '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '<span class="dot">•</span>Actual ' + (t.actual || '—') + '</div>';
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const approveBtn = document.createElement('button');
+  approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
+  approveBtn.onclick = () => decide(t.row, true, approveBtn);
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
+  rejectBtn.onclick = () => decide(t.row, false, rejectBtn);
+  actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
+  card.appendChild(actions);
+  return card;
 }
 
 async function decide(row, approve, btn) {
@@ -365,23 +589,20 @@ async function decide(row, approve, btn) {
   try {
     if (approve) {
       await callApi('approve', { row });
+      toast('Task approved', 'success');
     } else {
       const remark = prompt('Reason for declining (optional):') || '';
       await callApi('reject', { row, remark });
+      toast('Task declined — sent back to doer', 'success');
     }
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => {
-      card.remove();
-      const countEl = document.querySelector('.stat-box.warn .stat-num');
-      const remaining = document.querySelectorAll('#app .card').length;
-      if (countEl) countEl.textContent = remaining;
-      if (remaining === 0) {
-        document.getElementById('app').insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing pending.</div>');
-      }
+      adminPendingCache = adminPendingCache.filter(t => t.row !== row);
+      renderAdminView();
     }, 180);
   } catch (err) {
-    alert(err.message);
+    toast(err.message, 'error');
     btn.disabled = false;
   }
 }
