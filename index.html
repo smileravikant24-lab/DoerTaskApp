@@ -4,37 +4,152 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Daily Task App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root {
-    --blue: #2563eb; --green: #16a34a; --red: #dc2626;
-    --bg: #f4f6f9; --card: #fff; --text: #1f2937; --muted: #6b7280;
+    --ink: #1E2A44;
+    --ink-light: #2E3D5F;
+    --paper: #FAF7F1;
+    --card: #FFFFFF;
+    --amber: #B4682E;
+    --amber-bg: #FBEEE3;
+    --green: #2F6F4E;
+    --green-dark: #245A3E;
+    --red: #B4432E;
+    --text: #22262E;
+    --muted: #767E8C;
+    --line: #ECE6DC;
   }
   * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); }
-  header { background:var(--blue); color:#fff; padding:16px 20px; display:flex; justify-content:space-between; align-items:center; }
-  header h1 { font-size:18px; margin:0; }
-  header .email { font-size:12px; opacity:.9; }
-  .container { max-width:640px; margin:0 auto; padding:16px; }
-  .section-title { font-size:14px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:20px 0 8px; }
-  .card { background:var(--card); border-radius:10px; padding:14px 16px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
-  .card .task-name { font-weight:600; font-size:15px; }
-  .card .meta { font-size:12px; color:var(--muted); margin-top:4px; }
-  .card .actions { margin-top:10px; display:flex; gap:8px; }
-  button { border:none; border-radius:6px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
-  .btn-done, .btn-approve { background:var(--green); color:#fff; }
-  .btn-reject { background:var(--red); color:#fff; }
-  .empty { color:var(--muted); font-size:13px; padding:8px 0; }
-  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#fee2e2; color:var(--red); margin-left:6px; }
-  .install-tip { font-size:12px; color:var(--muted); background:#eef2ff; border-radius:8px; padding:10px 12px; margin-bottom:16px; }
-  .center { text-align:center; padding:60px 20px; }
-  .error-box { background:#fee2e2; color:var(--red); padding:14px 16px; border-radius:8px; margin-top:20px; max-width:400px; margin-left:auto; margin-right:auto; }
-  #g_id_signin_container { display:flex; justify-content:center; margin-top:20px; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--paper);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, .brand, .task-name, .stat-num { font-family: "Manrope", -apple-system, sans-serif; }
+
+  header {
+    background: linear-gradient(135deg, var(--ink) 0%, var(--ink-light) 100%);
+    color: #fff;
+    padding: 20px 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    box-shadow: 0 2px 12px rgba(30,42,68,0.18);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-icon {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: rgba(255,255,255,0.14);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 17px; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  header .email {
+    font-size: 11.5px; opacity: .85; background: rgba(255,255,255,0.1);
+    padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+  }
+
+  .container { max-width: 640px; margin: 0 auto; padding: 18px 16px 40px; }
+
+  .install-tip {
+    font-size: 12.5px; color: var(--ink-light);
+    background: #EEF1F7; border: 1px solid #E1E6F0;
+    border-radius: 10px; padding: 11px 14px; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .stat-row { display: flex; gap: 10px; margin-bottom: 22px; }
+  .stat-box {
+    flex: 1; background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .stat-num { font-size: 22px; font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat-box.warn .stat-num { color: var(--amber); }
+  .stat-box.ok .stat-num { color: var(--ink); }
+
+  .section-title {
+    font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 26px 0 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .section-title:first-of-type { margin-top: 0; }
+  .section-title.warn { color: var(--amber); }
+
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 15px 16px;
+    margin-bottom: 10px;
+    border-left: 4px solid var(--ink);
+    box-shadow: 0 1px 2px rgba(30,20,10,0.05);
+    animation: rise .25s ease both;
+  }
+  .card.rejected { border-left-color: var(--amber); background: linear-gradient(0deg, var(--amber-bg) 0%, var(--card) 55%); }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card .task-name { font-weight: 700; font-size: 15.5px; letter-spacing: -0.005em; }
+  .card .meta { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  .card .meta .dot { margin: 0 5px; opacity: .6; }
+  .card .actions { margin-top: 12px; display: flex; gap: 8px; }
+
+  button {
+    border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px;
+    font-weight: 700; cursor: pointer; transition: transform .1s ease, opacity .15s ease;
+    font-family: inherit;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: .55; cursor: default; transform: none; }
+
+  .btn-done, .btn-approve { background: var(--green); color: #fff; }
+  .btn-done:hover, .btn-approve:hover { background: var(--green-dark); }
+  .btn-reject { background: #fff; color: var(--red); border: 1.5px solid #E8CFC7; }
+  .btn-reject:hover { background: #FBEFEC; }
+
+  .empty {
+    color: var(--muted); font-size: 13.5px; padding: 16px 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .badge {
+    display: inline-block; font-size: 10.5px; font-weight: 700; padding: 3px 9px;
+    border-radius: 999px; background: var(--amber); color: #fff; margin-left: 8px;
+    text-transform: uppercase; letter-spacing: .03em; vertical-align: middle;
+  }
+
+  .center {
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; padding: 20px;
+    background: radial-gradient(circle at 50% 0%, #EEF1F7 0%, var(--paper) 55%);
+  }
+  .center .brand-icon-lg {
+    width: 56px; height: 56px; border-radius: 16px; background: var(--ink);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 18px;
+  }
+  .center h2 { font-size: 22px; font-weight: 800; margin: 0 0 6px; color: var(--ink); }
+  .center p { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+
+  .error-box {
+    background: #FBECE8; color: var(--red); padding: 13px 16px; border-radius: 10px;
+    margin-top: 16px; max-width: 380px; font-size: 13.5px; border: 1px solid #F1D4CC;
+  }
+  #g_id_signin_container { display: flex; justify-content: center; }
 </style>
 </head>
 <body>
 
 <div id="signedOut" class="center">
+  <div class="brand-icon-lg">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2 2 4-4.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke="#fff" stroke-width="1.6"/></svg>
+  </div>
   <h2>Daily Task App</h2>
   <p>Sign in with Google to continue.</p>
   <div id="g_id_signin_container"></div>
@@ -43,20 +158,25 @@
 
 <div id="signedIn" style="display:none">
   <header>
-    <h1 id="pageTitle">My Tasks Today</h1>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2 2 4-4.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke="#fff" stroke-width="1.6"/></svg>
+      </div>
+      <h1 id="pageTitle">My Tasks Today</h1>
+    </div>
     <span class="email" id="userEmailLabel"></span>
   </header>
   <div class="container">
     <div class="install-tip">
-      📲 For an app-like shortcut: tap "Add to Home Screen" / "Install" in your browser menu.
+      📲 <span>For an app-like shortcut: tap "Add to Home Screen" / "Install" in your browser menu.</span>
     </div>
-    <div id="app"><div class="empty">Loading...</div></div>
+    <div id="app"><div class="empty">Loading…</div></div>
   </div>
 </div>
 
 <script>
 // ============================================================
-// CONFIG — inn 2 values ko apne setup ke hisab se fill karo
+// CONFIG
 // ============================================================
 const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleusercontent.com";
 const API_URL = "https://script.google.com/macros/s/AKfycbx60_CQeJAR3nmZ_jw4Sd7QsPiZUQjFJeSEYyXzrqCSyMjrsW9605v8-BUkovh_VQ2Ncw/exec";
@@ -68,8 +188,7 @@ let userEmail = null;
 let isAdmin = false;
 
 // ------------------------------------------------------------
-// GOOGLE SIGN-IN (identity only — koi Sheets scope client side
-// nahi liya jaata, isliye setup bahut halka hai)
+// GOOGLE SIGN-IN
 // ------------------------------------------------------------
 window.addEventListener('load', () => {
   google.accounts.id.initialize({
@@ -78,15 +197,13 @@ window.addEventListener('load', () => {
   });
   google.accounts.id.renderButton(
     document.getElementById('g_id_signin_container'),
-    { theme: "outline", size: "large", text: "signin_with" }
+    { theme: "filled_black", size: "large", text: "signin_with", shape: "pill" }
   );
 });
 
 function handleCredentialResponse(response) {
-  idToken = response.credential; // Google ID token (JWT)
+  idToken = response.credential;
 
-  // sirf UI display ke liye JWT payload decode kar rahe hain;
-  // real security check hamesha backend par (verifyIdToken_) hoti hai
   const payload = JSON.parse(atob(idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   userEmail = payload.email;
   isAdmin = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
@@ -104,7 +221,7 @@ function showError(msg) {
 }
 
 // ------------------------------------------------------------
-// API CALLS — sab GET requests, taaki CORS preflight na aaye
+// API CALLS
 // ------------------------------------------------------------
 async function callApi(action, params = {}) {
   const url = new URL(API_URL);
@@ -133,21 +250,33 @@ async function loadDoerView() {
 function renderDoerView(todayTasks, rejectedTasks) {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
-  if (todayTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">No pending tasks today. 🎉</div>');
-  todayTasks.forEach(t => app.appendChild(taskCard(t, false)));
 
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Rejected Tasks (redo required)</div>');
-  if (rejectedTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">No rejected tasks.</div>');
-  rejectedTasks.forEach(t => app.appendChild(taskCard(t, true)));
+  app.insertAdjacentHTML('beforeend',
+    '<div class="stat-row">' +
+      '<div class="stat-box warn"><div class="stat-num">' + rejectedTasks.length + '</div><div class="stat-label">To redo</div></div>' +
+      '<div class="stat-box ok"><div class="stat-num">' + todayTasks.length + '</div><div class="stat-label">Due today</div></div>' +
+    '</div>'
+  );
+
+  // Rejected tasks first — these need attention before anything else
+  if (rejectedTasks.length > 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⚠ Rejected — redo required</div>');
+    rejectedTasks.forEach(t => app.appendChild(taskCard(t, true)));
+  }
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
+  if (todayTasks.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks today. Nicely done.</div>');
+  }
+  todayTasks.forEach(t => app.appendChild(taskCard(t, false)));
 }
 
 function taskCard(t, isRejected) {
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = isRejected ? 'card rejected' : 'card';
   card.innerHTML =
     '<div class="task-name">' + t.task + (isRejected ? '<span class="badge">Rejected</span>' : '') + '</div>' +
-    '<div class="meta">' + t.department + ' • ' + (t.freq || '') + ' • Planned: ' + t.planned + '</div>';
+    '<div class="meta">' + t.department + '<span class="dot">•</span>' + (t.freq || '') + '<span class="dot">•</span>Planned ' + t.planned + '</div>';
   const actions = document.createElement('div');
   actions.className = 'actions';
   const btn = document.createElement('button');
@@ -161,7 +290,7 @@ function taskCard(t, isRejected) {
 
 async function markDone(row, btn) {
   btn.disabled = true;
-  btn.textContent = 'Saving...';
+  btn.textContent = 'Saving…';
   try {
     const data = await callApi('markDone', { row });
     renderDoerView(data.today, data.rejected);
@@ -187,16 +316,25 @@ async function loadAdminView() {
 function renderAdminView(pending) {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Pending Approval (' + pending.length + ')</div>');
-  if (pending.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">All clear, no pending approvals. ✅</div>');
+
+  app.insertAdjacentHTML('beforeend',
+    '<div class="stat-row">' +
+      '<div class="stat-box warn"><div class="stat-num">' + pending.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
+    '</div>'
+  );
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Pending Approval</div>');
+  if (pending.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing pending.</div>');
+  }
 
   pending.forEach(t => {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML =
       '<div class="task-name">' + t.task + '</div>' +
-      '<div class="meta">' + t.name + ' (' + t.email + ') • ' + t.department + '</div>' +
-      '<div class="meta">Planned: ' + t.planned + ' • Actual: ' + (t.actual || '') + '</div>';
+      '<div class="meta">' + t.name + ' · ' + t.email + '<span class="dot">•</span>' + t.department + '</div>' +
+      '<div class="meta">Planned ' + t.planned + '<span class="dot">•</span>Actual ' + (t.actual || '—') + '</div>';
     const actions = document.createElement('div');
     actions.className = 'actions';
     const approveBtn = document.createElement('button');
