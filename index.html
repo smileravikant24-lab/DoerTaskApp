@@ -133,7 +133,7 @@ async function loadDoerView() {
 function renderDoerView(todayTasks, rejectedTasks) {
   const app = document.getElementById('app');
   app.innerHTML = "";
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today's Tasks</div>');
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
   if (todayTasks.length === 0) app.insertAdjacentHTML('beforeend', '<div class="empty">No pending tasks today. 🎉</div>');
   todayTasks.forEach(t => app.appendChild(taskCard(t, false)));
 
