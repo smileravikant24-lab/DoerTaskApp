@@ -74,7 +74,8 @@
     display: flex; align-items: center; gap: 8px;
   }
 
-  .stat-row { display: flex; gap: 10px; margin-bottom: 18px; }
+  .stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .stat-box { flex: 1 1 100px; }
   .stat-box {
     flex: 1; background: var(--card); border: 1px solid var(--line);
     border-radius: 12px; padding: 12px 14px;
@@ -432,18 +433,44 @@ function renderGroupedByDate(container, items, cardFn) {
 }
 
 // ------------------------------------------------------------
+// LOCAL CACHE — show last-known data instantly on open, then
+// silently refresh from the server in the background.
+// ------------------------------------------------------------
+function localCacheGet(key) {
+  try {
+    const raw = localStorage.getItem('doerapp_' + key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function localCacheSet(key, value) {
+  try { localStorage.setItem('doerapp_' + key, JSON.stringify(value)); } catch (e) { /* ignore quota errors */ }
+}
+
+// ------------------------------------------------------------
 // DOER VIEW
 // ------------------------------------------------------------
 async function loadDoerView() {
+  const cacheKey = 'dashboard_' + userEmail;
+  const cached = localCacheGet(cacheKey);
+  if (cached) {
+    doerTodayCache = cached.today;
+    doerRejectedCache = cached.rejected;
+    doerOverdueCache = cached.overdue || [];
+    doerFilter = "All";
+    renderDoerView(); // instant paint from last-known data
+  }
   try {
     const data = await callApi('dashboard');
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
     doerOverdueCache = data.overdue || [];
+    localCacheSet(cacheKey, data);
     doerFilter = "All";
-    renderDoerView();
+    renderDoerView(); // refresh with live data
   } catch (err) {
-    document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    if (!cached) {
+      document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    }
     toast(err.message, 'error');
   }
 }
@@ -525,21 +552,36 @@ async function markDone(row, kind, btn) {
 // ------------------------------------------------------------
 // ADMIN VIEW — grouped by user, with frequency filter + legend
 // ------------------------------------------------------------
-let adminTab = "approvals"; // 'approvals' | 'overdue'
+let adminTab = "approvals"; // 'approvals' | 'overdue' | 'performance'
 let adminOverdueCache = [];
+let adminPerformanceCache = [];
 
 async function loadAdminView() {
+  const cacheKey = 'admin_' + userEmail;
+  const cached = localCacheGet(cacheKey);
+  if (cached) {
+    adminPendingCache = cached.pending;
+    adminOverdueCache = cached.overdue;
+    adminPerformanceCache = cached.performance || [];
+    adminFilter = "All";
+    renderAdminView(); // instant paint from last-known data
+  }
   try {
-    const [pending, overdue] = await Promise.all([
+    const [pending, overdue, performance] = await Promise.all([
       callApi('pendingApprovals'),
-      callApi('overdueSummary')
+      callApi('overdueSummary'),
+      callApi('performance')
     ]);
     adminPendingCache = pending;
     adminOverdueCache = overdue;
+    adminPerformanceCache = performance;
+    localCacheSet(cacheKey, { pending, overdue, performance });
     adminFilter = "All";
-    renderAdminView();
+    renderAdminView(); // refresh with live data
   } catch (err) {
-    document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    if (!cached) {
+      document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    }
     toast(err.message, 'error');
   }
 }
@@ -560,10 +602,18 @@ function renderAdminView() {
         '<div class="stat-num">' + adminPendingCache.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
       '<div class="stat-box warn" id="tabOverdue" style="cursor:pointer">' +
         '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
+      '<div class="stat-box ok" id="tabPerformance" style="cursor:pointer">' +
+        '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>' +
     '</div>'
   );
   document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; adminFilter = 'All'; renderAdminView(); };
   document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; adminFilter = 'All'; renderAdminView(); };
+  document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
+
+  if (adminTab === 'performance') {
+    renderPerformanceView(app);
+    return;
+  }
 
   const source = adminTab === 'approvals' ? adminPendingCache : adminOverdueCache;
   renderFilterRow(app, source, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
@@ -578,6 +628,7 @@ function renderAdminView() {
     return;
   }
 
+  // One tile per user — collapsed by default, tap a user to reveal their tasks
   const groups = new Map();
   filtered.forEach(t => {
     const key = t.email;
@@ -590,9 +641,30 @@ function renderAdminView() {
     .forEach(g => app.appendChild(userGroupTile(g, adminTab)));
 }
 
+function renderPerformanceView(app) {
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">On-time completion — last 30 days</div>');
+  if (adminPerformanceCache.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">No task history in this window yet.</div>');
+    return;
+  }
+  adminPerformanceCache.forEach(u => {
+    const tone = u.percent >= 85 ? 'var(--green)' : (u.percent >= 60 ? 'var(--amber)' : 'var(--red)');
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.borderLeftColor = tone;
+    card.innerHTML =
+      '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+        '<div><div class="task-name">' + u.name + '</div><div class="meta">' + u.email + '</div></div>' +
+        '<div style="font-size:22px; font-weight:800; color:' + tone + ';">' + u.percent + '%</div>' +
+      '</div>' +
+      '<div class="meta" style="margin-top:9px;">✓ ' + u.onTime + ' on time <span class="dot">•</span> ⏱ ' + u.late + ' late <span class="dot">•</span> ✕ ' + u.missed + ' missed <span class="dot">•</span> ' + u.total + ' total</div>';
+    app.appendChild(card);
+  });
+}
+
 function userGroupTile(group, mode) {
   const wrap = document.createElement('div');
-  wrap.className = 'group';
+  wrap.className = 'group collapsed'; // collapsed by default — tap to reveal tasks
   const header = document.createElement('div');
   header.className = 'group-header';
   header.innerHTML =
