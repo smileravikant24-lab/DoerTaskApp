@@ -566,24 +566,34 @@ async function loadAdminView() {
     adminFilter = "All";
     renderAdminView(); // instant paint from last-known data
   }
-  try {
-    const [pending, overdue, performance] = await Promise.all([
-      callApi('pendingApprovals'),
-      callApi('overdueSummary'),
-      callApi('performance')
-    ]);
-    adminPendingCache = pending;
-    adminOverdueCache = overdue;
-    adminPerformanceCache = performance;
-    localCacheSet(cacheKey, { pending, overdue, performance });
-    adminFilter = "All";
-    renderAdminView(); // refresh with live data
-  } catch (err) {
-    if (!cached) {
-      document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
-    }
-    toast(err.message, 'error');
+  const [pendingResult, overdueResult, performanceResult] = await Promise.allSettled([
+    callApi('pendingApprovals'),
+    callApi('overdueSummary'),
+    callApi('performance')
+  ]);
+
+  const coreFailed = pendingResult.status === 'rejected' && overdueResult.status === 'rejected';
+  if (coreFailed && !cached) {
+    document.getElementById('app').innerHTML = '<div class="error-box">' + pendingResult.reason.message + '</div>';
+    toast(pendingResult.reason.message, 'error');
+    return;
   }
+
+  if (pendingResult.status === 'fulfilled') adminPendingCache = pendingResult.value;
+  else toast('Pending approvals: ' + pendingResult.reason.message, 'error');
+
+  if (overdueResult.status === 'fulfilled') adminOverdueCache = overdueResult.value;
+  else toast('Overdue: ' + overdueResult.reason.message, 'error');
+
+  if (performanceResult.status === 'fulfilled') adminPerformanceCache = performanceResult.value;
+  else {
+    adminPerformanceCache = [];
+    toast('Performance: ' + performanceResult.reason.message, 'error');
+  }
+
+  localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache });
+  adminFilter = "All";
+  renderAdminView(); // refresh with live data
 }
 
 function initials(name) {
