@@ -359,7 +359,7 @@ function signInWithToken(token) {
   document.getElementById('signedOut').style.display = 'none';
   document.getElementById('signedIn').style.display = 'block';
   document.getElementById('userEmailLabel').textContent = userEmail;
-  document.getElementById('pageTitle').textContent = isAdmin ? "Approval Panel" : "My Tasks Today";
+  document.getElementById('pageTitle').textContent = isAdmin ? "Review Panel" : "My Tasks Today";
 
   if (isAdmin) loadAdminView(); else loadDoerView();
 }
@@ -573,7 +573,7 @@ function renderDoerView() {
   if (showToday) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
     if (todayFiltered.length === 0) {
-      app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks in this view.</div>');
+      app.insertAdjacentHTML('beforeend', '<div class="empty">✅ Nothing here — you\'re all caught up.</div>');
     }
     todayFiltered.forEach(t => app.appendChild(taskCard(t, 'today')));
   }
@@ -624,7 +624,7 @@ async function markDone(t, kind, btn) {
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
-    toast(result.autoApproved ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
+    toast('Task marked as done', 'success');
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
@@ -666,7 +666,7 @@ async function loadAdminView() {
   }
 
   if (pendingResult.status === 'fulfilled') adminPendingCache = pendingResult.value;
-  else toast('Pending approvals: ' + pendingResult.reason.message, 'error');
+  else toast('Review list: ' + pendingResult.reason.message, 'error');
 
   if (overdueResult.status === 'fulfilled') adminOverdueCache = overdueResult.value;
   else toast('Overdue: ' + overdueResult.reason.message, 'error');
@@ -701,7 +701,7 @@ function renderAdminView() {
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
       '<div class="stat-box ' + (adminTab === 'approvals' ? 'ok' : 'warn') + '" id="tabApprovals" style="cursor:pointer">' +
-        '<div class="stat-num">' + adminPendingCache.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
+        '<div class="stat-num">' + adminPendingCache.length + '</div><div class="stat-label">To Review</div></div>' +
       '<div class="stat-box warn" id="tabOverdue" style="cursor:pointer">' +
         '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
       '<div class="stat-box warn" id="tabRejected" style="cursor:pointer">' +
@@ -726,7 +726,7 @@ function renderAdminView() {
   const filtered = adminFilter === "All" ? source : source.filter(t => t.freq === adminFilter);
 
   const sectionTitles = {
-    approvals: 'Pending Approval',
+    approvals: 'To Review',
     overdue: '⏰ Overdue — not yet done by anyone',
     rejected: '⚠ Rejected — sent back for redo'
   };
