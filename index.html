@@ -610,21 +610,21 @@ function taskCard(t, kind) {
 
 async function markDone(t, kind, btn) {
   const row = t.row;
-  const isDaily = t.freq === 'D';
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
-    // Daily-frequency tasks don't require admin approval — flagged for the
-    // backend so it can auto-complete them instead of queuing for approval.
-    await callApi('markDone', { row, freq: t.freq || '', autoApprove: isDaily ? 1 : 0 });
+    // The backend decides whether the task auto-approves (Daily-frequency
+    // tasks, or the admin doing their own tasks) — it reads freq straight
+    // from the sheet rather than trusting a client-supplied flag.
+    const result = await callApi('markDone', { row });
     if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
     else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.row !== row);
     else doerTodayCache = doerTodayCache.filter(t => t.row !== row);
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
-    toast(isDaily ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
+    toast(result.autoApproved ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
@@ -635,9 +635,10 @@ async function markDone(t, kind, btn) {
 // ------------------------------------------------------------
 // ADMIN VIEW — grouped by user, with frequency filter + legend
 // ------------------------------------------------------------
-let adminTab = "approvals"; // 'approvals' | 'overdue' | 'performance'
+let adminTab = "approvals"; // 'approvals' | 'overdue' | 'rejected' | 'performance'
 let adminOverdueCache = [];
 let adminPerformanceCache = [];
+let adminRejectedCache = [];
 
 async function loadAdminView() {
   const cacheKey = 'admin_' + userEmail;
@@ -646,13 +647,15 @@ async function loadAdminView() {
     adminPendingCache = cached.pending;
     adminOverdueCache = cached.overdue;
     adminPerformanceCache = cached.performance || [];
+    adminRejectedCache = cached.rejected || [];
     adminFilter = "All";
     renderAdminView(); // instant paint from last-known data
   }
-  const [pendingResult, overdueResult, performanceResult] = await Promise.allSettled([
+  const [pendingResult, overdueResult, performanceResult, rejectedResult] = await Promise.allSettled([
     callApi('pendingApprovals'),
     callApi('overdueSummary'),
-    callApi('performance')
+    callApi('performance'),
+    callApi('rejectedSummary')
   ]);
 
   const coreFailed = pendingResult.status === 'rejected' && overdueResult.status === 'rejected';
@@ -674,7 +677,13 @@ async function loadAdminView() {
     toast('Performance: ' + performanceResult.reason.message, 'error');
   }
 
-  localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache });
+  if (rejectedResult.status === 'fulfilled') adminRejectedCache = rejectedResult.value;
+  else {
+    adminRejectedCache = [];
+    toast('Rejected: ' + rejectedResult.reason.message, 'error');
+  }
+
+  localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
   adminFilter = "All";
   renderAdminView(); // refresh with live data
 }
@@ -695,12 +704,15 @@ function renderAdminView() {
         '<div class="stat-num">' + adminPendingCache.length + '</div><div class="stat-label">Awaiting approval</div></div>' +
       '<div class="stat-box warn" id="tabOverdue" style="cursor:pointer">' +
         '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
+      '<div class="stat-box warn" id="tabRejected" style="cursor:pointer">' +
+        '<div class="stat-num">' + adminRejectedCache.length + '</div><div class="stat-label">Rejected</div></div>' +
       '<div class="stat-box ok" id="tabPerformance" style="cursor:pointer">' +
         '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>' +
     '</div>'
   );
   document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; adminFilter = 'All'; renderAdminView(); };
   document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; adminFilter = 'All'; renderAdminView(); };
+  document.getElementById('tabRejected').onclick = () => { adminTab = 'rejected'; adminFilter = 'All'; renderAdminView(); };
   document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
 
   if (adminTab === 'performance') {
@@ -708,14 +720,17 @@ function renderAdminView() {
     return;
   }
 
-  const source = adminTab === 'approvals' ? adminPendingCache : adminOverdueCache;
+  const source = adminTab === 'approvals' ? adminPendingCache : (adminTab === 'overdue' ? adminOverdueCache : adminRejectedCache);
   renderFilterRow(app, source, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
 
   const filtered = adminFilter === "All" ? source : source.filter(t => t.freq === adminFilter);
 
-  app.insertAdjacentHTML('beforeend',
-    '<div class="section-title">' + (adminTab === 'approvals' ? 'Pending Approval' : '⏰ Overdue — not yet done by anyone') + '</div>'
-  );
+  const sectionTitles = {
+    approvals: 'Pending Approval',
+    overdue: '⏰ Overdue — not yet done by anyone',
+    rejected: '⚠ Rejected — sent back for redo'
+  };
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">' + sectionTitles[adminTab] + '</div>');
   if (filtered.length === 0) {
     app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing here.</div>');
     return;
@@ -771,6 +786,8 @@ function userGroupTile(group, mode) {
   body.className = 'group-body';
   if (mode === 'overdue') {
     renderGroupedByDate(body, group.tasks, (t) => overdueTaskCard(t));
+  } else if (mode === 'rejected') {
+    group.tasks.forEach(t => body.appendChild(rejectedTaskCard(t)));
   } else {
     group.tasks.forEach(t => body.appendChild(adminTaskCard(t)));
   }
@@ -786,6 +803,16 @@ function overdueTaskCard(t) {
   card.innerHTML =
     '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Overdue</span></div>' +
     '<div class="meta">' + t.department + '<span class="dot">•</span>Was planned ' + t.planned + '</div>';
+  return card;
+}
+
+function rejectedTaskCard(t) {
+  const card = document.createElement('div');
+  card.className = 'card rejected';
+  card.innerHTML =
+    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Rejected</span></div>' +
+    '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '</div>' +
+    (t.remark ? '<div class="meta" style="margin-top:6px; color:var(--amber);">Reason: ' + t.remark + '</div>' : '');
   return card;
 }
 
@@ -818,10 +845,7 @@ async function decide(row, approve, btn) {
     } else {
       const remark = (prompt('Reason for declining (required):') || '').trim();
       if (!remark) { toast('Please enter a reason for declining', 'error'); btn.disabled = false; return; }
-      // Sent under multiple keys since the backend's expected field name
-      // for the decline reason isn't confirmed — this keeps it landing in
-      // the Sheet regardless of which one the Apps Script code reads.
-      await callApi('reject', { row, remark, reason: remark, rejectReason: remark });
+      await callApi('reject', { row, remark });
       toast('Task declined — sent back to doer', 'success');
     }
     card.style.transition = 'opacity .2s ease';
