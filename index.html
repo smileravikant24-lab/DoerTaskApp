@@ -399,10 +399,10 @@ async function callApi(action, params = {}) {
 // ------------------------------------------------------------
 function renderFilterRow(container, itemsForCounts, currentFilter, onSelect) {
   const freqsPresent = [...new Set(itemsForCounts.map(t => t.freq).filter(Boolean))];
-  let html = '<div class="filter-row"><div class="chip ' + (currentFilter === "All" ? "active" : "") + '" data-freq="All">All (' + itemsForCounts.length + ')</div>';
+  let html = '<div class="filter-row"><div class="chip freq-chip ' + (currentFilter === "All" ? "active" : "") + '" data-freq="All">All (' + itemsForCounts.length + ')</div>';
   freqsPresent.forEach(f => {
     const count = itemsForCounts.filter(t => t.freq === f).length;
-    html += '<div class="chip ' + (currentFilter === f ? "active" : "") + '" data-freq="' + f + '">' + (FREQ_LABELS[f] || f) + ' (' + count + ')</div>';
+    html += '<div class="chip freq-chip ' + (currentFilter === f ? "active" : "") + '" data-freq="' + f + '">' + (FREQ_LABELS[f] || f) + ' (' + count + ')</div>';
   });
   html += '<button class="legend-btn" id="legendToggle">Legend</button></div>';
   html += '<div class="legend-panel" id="legendPanel">' +
@@ -410,7 +410,11 @@ function renderFilterRow(container, itemsForCounts, currentFilter, onSelect) {
     '</div>';
   container.insertAdjacentHTML('beforeend', html);
 
-  container.querySelectorAll('.chip').forEach(chip => {
+  // Scoped to .freq-chip only — the doer view also has .status-chip elements
+  // sharing the base .chip class; a plain '.chip' query here used to also
+  // grab those and overwrite their click handlers with this one (whose
+  // dataset.freq is undefined on a status chip), breaking the status filter.
+  container.querySelectorAll('.freq-chip').forEach(chip => {
     chip.onclick = () => onSelect(chip.dataset.freq);
   });
   document.getElementById('legendToggle').onclick = () => document.getElementById('legendPanel').classList.toggle('open');
