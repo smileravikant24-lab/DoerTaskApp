@@ -628,7 +628,7 @@ async function markDone(t, kind, btn) {
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
-    toast('Task marked as done', 'success');
+    toast(result.autoApproved ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
