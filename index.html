@@ -291,6 +291,7 @@ let adminFilter = "All";
 let adminPendingCache = [];
 
 let doerFilter = "All";
+let doerStatusFilter = "all"; // 'all' | 'overdue' | 'rejected' | 'today'
 let doerTodayCache = [];
 let doerRejectedCache = [];
 let doerOverdueCache = [];
@@ -458,6 +459,7 @@ async function loadDoerView() {
     doerOverdueCache = cached.overdue || [];
     doerFilter = "All";
     renderDoerView(); // instant paint from last-known data
+    updateRejectedBadge();
   }
   try {
     const data = await callApi('dashboard');
@@ -467,12 +469,52 @@ async function loadDoerView() {
     localCacheSet(cacheKey, data);
     doerFilter = "All";
     renderDoerView(); // refresh with live data
+    notifyNewRejections(doerRejectedCache);
+    updateRejectedBadge();
   } catch (err) {
     if (!cached) {
       document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
     }
     toast(err.message, 'error');
   }
+}
+
+// ------------------------------------------------------------
+// REJECTED-TASK NOTIFICATIONS
+// (1) OS/browser push notification when a task is newly rejected
+// (2) In-app badge: tab title count + a notification bar in the app
+// ------------------------------------------------------------
+function updateRejectedBadge() {
+  const n = doerRejectedCache.length;
+  document.title = n > 0 ? '(' + n + ') Daily Task App' : 'Daily Task App';
+}
+
+function notifyNewRejections(rejectedList) {
+  if (!('Notification' in window) || !userEmail) return;
+  const seenKey = 'doerapp_seenRejected_' + userEmail;
+  const seenRows = new Set(localCacheGet(seenKey) || []);
+  const currentRows = rejectedList.map(t => t.row);
+  const newlyRejected = rejectedList.filter(t => !seenRows.has(t.row));
+
+  if (newlyRejected.length > 0) {
+    const body = newlyRejected.length === 1
+      ? newlyRejected[0].task + ' was rejected — redo required.'
+      : newlyRejected.length + ' of your tasks were rejected — redo required.';
+
+    const fire = () => {
+      try {
+        new Notification('Task Rejected', { body, tag: 'doerapp-rejected' });
+      } catch (e) { /* ignore — e.g. unsupported in this context */ }
+    };
+
+    if (Notification.permission === 'granted') {
+      fire();
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(perm => { if (perm === 'granted') fire(); });
+    }
+  }
+
+  localCacheSet(seenKey, currentRows);
 }
 
 function renderDoerView() {
@@ -488,27 +530,64 @@ function renderDoerView() {
     '</div>'
   );
 
+  if (doerRejectedCache.length > 0) {
+    app.insertAdjacentHTML('beforeend',
+      '<div class="install-tip" style="background:var(--amber-bg); border-color:#EAD3BE; color:var(--amber);">' +
+        '⚠ <span>' + doerRejectedCache.length + ' task' + (doerRejectedCache.length > 1 ? 's' : '') + ' rejected — needs to be redone.</span>' +
+      '</div>'
+    );
+  }
+
+  app.insertAdjacentHTML('beforeend',
+    '<div class="filter-row">' +
+      statusChip('all', 'All') +
+      statusChip('overdue', 'Overdue (' + doerOverdueCache.length + ')') +
+      statusChip('rejected', 'Rejected (' + doerRejectedCache.length + ')') +
+      statusChip('today', 'Due Today (' + doerTodayCache.length + ')') +
+    '</div>'
+  );
+  app.querySelectorAll('.status-chip').forEach(chip => {
+    chip.onclick = () => { doerStatusFilter = chip.dataset.status; renderDoerView(); };
+  });
+
   renderFilterRow(app, allItems, doerFilter, (freq) => { doerFilter = freq; renderDoerView(); });
 
   const todayFiltered = doerFilter === "All" ? doerTodayCache : doerTodayCache.filter(t => t.freq === doerFilter);
   const rejectedFiltered = doerFilter === "All" ? doerRejectedCache : doerRejectedCache.filter(t => t.freq === doerFilter);
   const overdueFiltered = doerFilter === "All" ? doerOverdueCache : doerOverdueCache.filter(t => t.freq === doerFilter);
 
-  if (overdueFiltered.length > 0) {
+  const showOverdue = doerStatusFilter === 'all' || doerStatusFilter === 'overdue';
+  const showRejected = doerStatusFilter === 'all' || doerStatusFilter === 'rejected';
+  const showToday = doerStatusFilter === 'all' || doerStatusFilter === 'today';
+
+  if (showOverdue && overdueFiltered.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⏰ Overdue — missed, please complete</div>');
     renderGroupedByDate(app, overdueFiltered, (t) => taskCard(t, 'overdue'));
   }
 
-  if (rejectedFiltered.length > 0) {
+  if (showRejected && rejectedFiltered.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⚠ Rejected — redo required</div>');
     rejectedFiltered.forEach(t => app.appendChild(taskCard(t, 'rejected')));
   }
 
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
-  if (todayFiltered.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks in this view.</div>');
+  if (showToday) {
+    app.insertAdjacentHTML('beforeend', '<div class="section-title">Today\'s Tasks</div>');
+    if (todayFiltered.length === 0) {
+      app.insertAdjacentHTML('beforeend', '<div class="empty">✅ No pending tasks in this view.</div>');
+    }
+    todayFiltered.forEach(t => app.appendChild(taskCard(t, 'today')));
   }
-  todayFiltered.forEach(t => app.appendChild(taskCard(t, 'today')));
+
+  if (doerStatusFilter !== 'all' &&
+      ((doerStatusFilter === 'overdue' && overdueFiltered.length === 0) ||
+       (doerStatusFilter === 'rejected' && rejectedFiltered.length === 0) ||
+       (doerStatusFilter === 'today' && todayFiltered.length === 0))) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ Nothing in this view.</div>');
+  }
+}
+
+function statusChip(status, label) {
+  return '<div class="chip status-chip ' + (doerStatusFilter === status ? 'active' : '') + '" data-status="' + status + '">' + label + '</div>';
 }
 
 function taskCard(t, kind) {
@@ -523,25 +602,29 @@ function taskCard(t, kind) {
   const btn = document.createElement('button');
   btn.className = 'btn-done';
   btn.textContent = (kind === 'today') ? 'Done ✓' : 'Mark Done Now';
-  btn.onclick = () => markDone(t.row, kind, btn);
+  btn.onclick = () => markDone(t, kind, btn);
   actions.appendChild(btn);
   card.appendChild(actions);
   return card;
 }
 
-async function markDone(row, kind, btn) {
+async function markDone(t, kind, btn) {
+  const row = t.row;
+  const isDaily = t.freq === 'D';
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
-    await callApi('markDone', { row });
+    // Daily-frequency tasks don't require admin approval — flagged for the
+    // backend so it can auto-complete them instead of queuing for approval.
+    await callApi('markDone', { row, freq: t.freq || '', autoApprove: isDaily ? 1 : 0 });
     if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
     else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.row !== row);
     else doerTodayCache = doerTodayCache.filter(t => t.row !== row);
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
-    toast('Task marked as done — sent for approval', 'success');
+    toast(isDaily ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
@@ -733,8 +816,12 @@ async function decide(row, approve, btn) {
       await callApi('approve', { row });
       toast('Task approved', 'success');
     } else {
-      const remark = prompt('Reason for declining (optional):') || '';
-      await callApi('reject', { row, remark });
+      const remark = (prompt('Reason for declining (required):') || '').trim();
+      if (!remark) { toast('Please enter a reason for declining', 'error'); btn.disabled = false; return; }
+      // Sent under multiple keys since the backend's expected field name
+      // for the decline reason isn't confirmed — this keeps it landing in
+      // the Sheet regardless of which one the Apps Script code reads.
+      await callApi('reject', { row, remark, reason: remark, rejectReason: remark });
       toast('Task declined — sent back to doer', 'success');
     }
     card.style.transition = 'opacity .2s ease';
