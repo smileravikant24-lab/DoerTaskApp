@@ -606,6 +606,10 @@ async function markDone(t, kind, btn) {
     if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
     else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.row !== row);
     else doerTodayCache = doerTodayCache.filter(t => t.row !== row);
+    // Without this, the local snapshot used to instant-paint on the next
+    // page load still has the task in it — so it flashes back as
+    // "rejected" on refresh until the live API refetch catches up.
+    localCacheSet('dashboard_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache });
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
