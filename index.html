@@ -258,9 +258,6 @@
     </div>
   </header>
   <div class="container">
-    <div class="install-tip">
-      📲 <span>For an app-like shortcut: tap "Add to Home Screen" / "Install" in your browser menu.</span>
-    </div>
     <div id="app"><div class="empty">Loading…</div></div>
   </div>
 </div>
@@ -533,14 +530,6 @@ function renderDoerView() {
       '<div class="stat-box ok"><div class="stat-num">' + doerTodayCache.length + '</div><div class="stat-label">Due today</div></div>' +
     '</div>'
   );
-
-  if (doerRejectedCache.length > 0) {
-    app.insertAdjacentHTML('beforeend',
-      '<div class="install-tip" style="background:var(--amber-bg); border-color:#EAD3BE; color:var(--amber);">' +
-        '⚠ <span>' + doerRejectedCache.length + ' task' + (doerRejectedCache.length > 1 ? 's' : '') + ' rejected — needs to be redone.</span>' +
-      '</div>'
-    );
-  }
 
   app.insertAdjacentHTML('beforeend',
     '<div class="filter-row">' +
