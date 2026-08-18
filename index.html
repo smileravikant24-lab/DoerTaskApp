@@ -524,14 +524,6 @@ function renderDoerView() {
   const allItems = doerTodayCache.concat(doerRejectedCache, doerOverdueCache);
 
   app.insertAdjacentHTML('beforeend',
-    '<div class="stat-row">' +
-      '<div class="stat-box warn"><div class="stat-num">' + doerOverdueCache.length + '</div><div class="stat-label">Overdue</div></div>' +
-      '<div class="stat-box warn"><div class="stat-num">' + doerRejectedCache.length + '</div><div class="stat-label">To redo</div></div>' +
-      '<div class="stat-box ok"><div class="stat-num">' + doerTodayCache.length + '</div><div class="stat-label">Due today</div></div>' +
-    '</div>'
-  );
-
-  app.insertAdjacentHTML('beforeend',
     '<div class="filter-row">' +
       statusChip('all', 'All') +
       statusChip('overdue', 'Overdue (' + doerOverdueCache.length + ')') +
