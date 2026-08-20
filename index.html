@@ -347,6 +347,8 @@ function handleCredentialResponse(response) {
   signInWithToken(response.credential);
 }
 
+let adminShowMyTasks = false; // admin (pc@satijapaper.com) also has her own tasks in Master — this toggles her personal task list on top of the review panel
+
 function signInWithToken(token) {
   idToken = token;
   const payload = decodeJwt(idToken);
@@ -356,8 +358,9 @@ function signInWithToken(token) {
   document.getElementById('signedOut').style.display = 'none';
   document.getElementById('signedIn').style.display = 'block';
   document.getElementById('userEmailLabel').textContent = userEmail;
-  document.getElementById('pageTitle').textContent = isAdmin ? "Review Panel" : "My Tasks Today";
 
+  adminShowMyTasks = false;
+  document.getElementById('pageTitle').textContent = isAdmin ? "Review Panel" : "My Tasks Today";
   if (isAdmin) loadAdminView(); else loadDoerView();
 }
 
@@ -523,6 +526,17 @@ function renderDoerView() {
   app.innerHTML = "";
   const allItems = doerTodayCache.concat(doerRejectedCache, doerOverdueCache);
 
+  if (isAdmin && adminShowMyTasks) {
+    app.insertAdjacentHTML('beforeend',
+      '<button class="legend-btn" id="backToReviewBtn" style="margin-bottom:12px;">← Back to Review Panel</button>'
+    );
+    document.getElementById('backToReviewBtn').onclick = () => {
+      adminShowMyTasks = false;
+      document.getElementById('pageTitle').textContent = 'Review Panel';
+      loadAdminView();
+    };
+  }
+
   app.insertAdjacentHTML('beforeend',
     '<div class="filter-row">' +
       statusChip('all', 'All') +
@@ -686,6 +700,15 @@ function initials(name) {
 function renderAdminView() {
   const app = document.getElementById('app');
   app.innerHTML = "";
+
+  app.insertAdjacentHTML('beforeend',
+    '<button class="legend-btn" id="myTasksBtn" style="margin-bottom:12px;">My Tasks →</button>'
+  );
+  document.getElementById('myTasksBtn').onclick = () => {
+    adminShowMyTasks = true;
+    document.getElementById('pageTitle').textContent = 'My Tasks Today';
+    loadDoerView();
+  };
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
