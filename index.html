@@ -454,9 +454,9 @@ function localCacheSet(key, value) {
 // ------------------------------------------------------------
 // DOER VIEW
 // ------------------------------------------------------------
-async function loadDoerView() {
+async function loadDoerView(force) {
   const cacheKey = 'dashboard_' + userEmail;
-  const cached = localCacheGet(cacheKey);
+  const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     doerTodayCache = cached.today;
     doerRejectedCache = cached.rejected;
@@ -466,7 +466,7 @@ async function loadDoerView() {
     updateRejectedBadge();
   }
   try {
-    const data = await callApi('dashboard');
+    const data = await callApi('dashboard', force ? { force: 1 } : {});
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
     doerOverdueCache = data.overdue || [];
@@ -526,16 +526,25 @@ function renderDoerView() {
   app.innerHTML = "";
   const allItems = doerTodayCache.concat(doerRejectedCache, doerOverdueCache);
 
+  app.insertAdjacentHTML('beforeend',
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+      (isAdmin && adminShowMyTasks ? '<button class="legend-btn" id="backToReviewBtn">← Back to Review Panel</button>' : '<span></span>') +
+      '<button class="legend-btn" id="doerRefreshBtn">⟳ Refresh</button>' +
+    '</div>'
+  );
   if (isAdmin && adminShowMyTasks) {
-    app.insertAdjacentHTML('beforeend',
-      '<button class="legend-btn" id="backToReviewBtn" style="margin-bottom:12px;">← Back to Review Panel</button>'
-    );
     document.getElementById('backToReviewBtn').onclick = () => {
       adminShowMyTasks = false;
       document.getElementById('pageTitle').textContent = 'Review Panel';
       loadAdminView();
     };
   }
+  document.getElementById('doerRefreshBtn').onclick = async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Refreshing…';
+    await loadDoerView(true);
+    toast('Refreshed from the sheet', 'success');
+  };
 
   app.insertAdjacentHTML('beforeend',
     '<div class="filter-row">' +
@@ -643,9 +652,9 @@ let adminOverdueCache = [];
 let adminPerformanceCache = [];
 let adminRejectedCache = [];
 
-async function loadAdminView() {
+async function loadAdminView(force) {
   const cacheKey = 'admin_' + userEmail;
-  const cached = localCacheGet(cacheKey);
+  const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     adminPendingCache = cached.pending;
     adminOverdueCache = cached.overdue;
@@ -654,11 +663,12 @@ async function loadAdminView() {
     adminFilter = "All";
     renderAdminView(); // instant paint from last-known data
   }
+  const forceParams = force ? { force: 1 } : {};
   const [pendingResult, overdueResult, performanceResult, rejectedResult] = await Promise.allSettled([
-    callApi('pendingApprovals'),
-    callApi('overdueSummary'),
-    callApi('performance'),
-    callApi('rejectedSummary')
+    callApi('pendingApprovals', forceParams),
+    callApi('overdueSummary', forceParams),
+    callApi('performance', forceParams),
+    callApi('rejectedSummary', forceParams)
   ]);
 
   const coreFailed = pendingResult.status === 'rejected' && overdueResult.status === 'rejected';
@@ -702,12 +712,21 @@ function renderAdminView() {
   app.innerHTML = "";
 
   app.insertAdjacentHTML('beforeend',
-    '<button class="legend-btn" id="myTasksBtn" style="margin-bottom:12px;">My Tasks →</button>'
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+      '<button class="legend-btn" id="myTasksBtn">My Tasks →</button>' +
+      '<button class="legend-btn" id="adminRefreshBtn">⟳ Refresh</button>' +
+    '</div>'
   );
   document.getElementById('myTasksBtn').onclick = () => {
     adminShowMyTasks = true;
     document.getElementById('pageTitle').textContent = 'My Tasks Today';
     loadDoerView();
+  };
+  document.getElementById('adminRefreshBtn').onclick = async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Refreshing…';
+    await loadAdminView(true);
+    toast('Refreshed from the sheet', 'success');
   };
 
   app.insertAdjacentHTML('beforeend',
