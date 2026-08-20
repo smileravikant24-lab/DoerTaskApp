@@ -388,7 +388,21 @@ async function callApi(action, params = {}) {
   url.searchParams.set('idToken', idToken);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
-  const res = await fetch(url.toString());
+  // Without a timeout, a single hung request (Apps Script under load, a
+  // dropped connection, etc.) blocks forever with no error — this showed up
+  // as the bulk "Approve all Daily" loop getting stuck mid-way with no way
+  // to tell if it was still working or dead.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(url.toString(), { signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Request timed out — please try again');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const json = await res.json();
   if (!json.ok) throw new Error(json.error);
   return json.data;
@@ -782,13 +796,25 @@ function renderAdminView() {
     );
     document.getElementById('autoApproveDailyBtn').onclick = async (e) => {
       e.target.disabled = true;
-      e.target.textContent = 'Approving…';
-      for (const t of stuckDaily) {
-        try { await callApi('approve', { row: t.row }); } catch (err) { toast(err.message, 'error'); }
+      const succeededRows = [];
+      let failCount = 0;
+      for (let i = 0; i < stuckDaily.length; i++) {
+        e.target.textContent = 'Approving… (' + (i + 1) + '/' + stuckDaily.length + ')';
+        try {
+          await callApi('approve', { row: stuckDaily[i].row });
+          succeededRows.push(stuckDaily[i].row);
+        } catch (err) {
+          failCount++;
+        }
       }
-      adminPendingCache = adminPendingCache.filter(t => t.freq !== 'D');
+      adminPendingCache = adminPendingCache.filter(t => !succeededRows.includes(t.row));
       localCacheSet('admin_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
-      toast('Approved ' + stuckDaily.length + ' Daily task(s)', 'success');
+      toast(
+        failCount > 0
+          ? 'Approved ' + succeededRows.length + ', ' + failCount + ' failed — tap the button again to retry those'
+          : 'Approved ' + succeededRows.length + ' Daily task(s)',
+        failCount > 0 ? 'error' : 'success'
+      );
       renderAdminView();
     };
   }
