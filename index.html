@@ -663,13 +663,20 @@ async function loadAdminView(force) {
     adminFilter = "All";
     renderAdminView(); // instant paint from last-known data
   }
+  // Sequential, not parallel — the Apps Script backend is a single-instance
+  // web app and firing 4 requests at once (especially with force=1, which
+  // makes each one do a full uncached sheet scan) made it prone to dropping
+  // one of them with a generic "Failed to fetch".
   const forceParams = force ? { force: 1 } : {};
-  const [pendingResult, overdueResult, performanceResult, rejectedResult] = await Promise.allSettled([
-    callApi('pendingApprovals', forceParams),
-    callApi('overdueSummary', forceParams),
-    callApi('performance', forceParams),
-    callApi('rejectedSummary', forceParams)
-  ]);
+  let pendingResult, overdueResult, performanceResult, rejectedResult;
+  try { pendingResult = { status: 'fulfilled', value: await callApi('pendingApprovals', forceParams) }; }
+  catch (err) { pendingResult = { status: 'rejected', reason: err }; }
+  try { overdueResult = { status: 'fulfilled', value: await callApi('overdueSummary', forceParams) }; }
+  catch (err) { overdueResult = { status: 'rejected', reason: err }; }
+  try { performanceResult = { status: 'fulfilled', value: await callApi('performance', forceParams) }; }
+  catch (err) { performanceResult = { status: 'rejected', reason: err }; }
+  try { rejectedResult = { status: 'fulfilled', value: await callApi('rejectedSummary', forceParams) }; }
+  catch (err) { rejectedResult = { status: 'rejected', reason: err }; }
 
   const coreFailed = pendingResult.status === 'rejected' && overdueResult.status === 'rejected';
   if (coreFailed && !cached) {
@@ -761,6 +768,30 @@ function renderAdminView() {
     overdue: '⏰ Overdue — not yet done by anyone',
     rejected: '⚠ Rejected — sent back for redo'
   };
+
+  // Daily tasks marked done before the auto-approve backend fix went live
+  // are stuck sitting as "Submitted" — this clears that backlog in one go
+  // instead of approving them one by one.
+  const stuckDaily = adminTab === 'approvals' ? adminPendingCache.filter(t => t.freq === 'D') : [];
+  if (stuckDaily.length > 0) {
+    app.insertAdjacentHTML('beforeend',
+      '<div class="empty" style="background:var(--amber-bg); border-radius:10px; padding:10px 14px; margin-bottom:10px;">' +
+        '⚠ <span>' + stuckDaily.length + ' Daily task' + (stuckDaily.length > 1 ? 's' : '') + ' stuck in review from before the auto-approve fix. </span>' +
+        '<button class="legend-btn" id="autoApproveDailyBtn" style="margin-left:6px;">Approve all Daily now</button>' +
+      '</div>'
+    );
+    document.getElementById('autoApproveDailyBtn').onclick = async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'Approving…';
+      for (const t of stuckDaily) {
+        try { await callApi('approve', { row: t.row }); } catch (err) { toast(err.message, 'error'); }
+      }
+      adminPendingCache = adminPendingCache.filter(t => t.freq !== 'D');
+      localCacheSet('admin_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+      toast('Approved ' + stuckDaily.length + ' Daily task(s)', 'success');
+      renderAdminView();
+    };
+  }
   app.insertAdjacentHTML('beforeend', '<div class="section-title">' + sectionTitles[adminTab] + '</div>');
   if (filtered.length === 0) {
     app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing here.</div>');
