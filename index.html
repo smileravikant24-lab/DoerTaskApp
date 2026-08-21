@@ -523,9 +523,9 @@ function updateRejectedBadge() {
 function notifyNewRejections(rejectedList) {
   if (!('Notification' in window) || !userEmail) return;
   const seenKey = 'doerapp_seenRejected_' + userEmail;
-  const seenRows = new Set(localCacheGet(seenKey) || []);
-  const currentRows = rejectedList.map(t => t.row);
-  const newlyRejected = rejectedList.filter(t => !seenRows.has(t.row));
+  const seenIds = new Set(localCacheGet(seenKey) || []);
+  const currentIds = rejectedList.map(t => t.id);
+  const newlyRejected = rejectedList.filter(t => !seenIds.has(t.id));
 
   if (newlyRejected.length > 0) {
     const body = newlyRejected.length === 1
@@ -545,7 +545,7 @@ function notifyNewRejections(rejectedList) {
     }
   }
 
-  localCacheSet(seenKey, currentRows);
+  localCacheSet(seenKey, currentIds);
 }
 
 function renderDoerView() {
@@ -644,18 +644,21 @@ function taskCard(t, kind) {
 }
 
 async function markDone(t, kind, btn) {
-  const row = t.row;
+  const id = t.id;
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
     // The backend decides whether the task auto-approves (Daily-frequency
     // tasks, or the admin doing their own tasks) — it reads freq straight
-    // from the sheet rather than trusting a client-supplied flag.
-    const result = await callApi('markDone', { row });
-    if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.row !== row);
-    else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.row !== row);
-    else doerTodayCache = doerTodayCache.filter(t => t.row !== row);
+    // from the sheet rather than trusting a client-supplied flag. Identified
+    // by a stable task id (not sheet row number) — row numbers shift if the
+    // Master sheet gets manually sorted/re-ordered, which used to silently
+    // update the wrong task.
+    const result = await callApi('markDone', { id });
+    if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.id !== id);
+    else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.id !== id);
+    else doerTodayCache = doerTodayCache.filter(t => t.id !== id);
     // Without this, the local snapshot used to instant-paint on the next
     // page load still has the task in it — so it flashes back as
     // "rejected" on refresh until the live API refetch catches up.
@@ -813,23 +816,23 @@ function renderAdminView() {
     );
     document.getElementById('autoApproveDailyBtn').onclick = async (e) => {
       e.target.disabled = true;
-      const succeededRows = [];
+      const succeededIds = [];
       let failCount = 0;
       for (let i = 0; i < stuckDaily.length; i++) {
         e.target.textContent = 'Approving… (' + (i + 1) + '/' + stuckDaily.length + ')';
         try {
-          await callApi('approve', { row: stuckDaily[i].row });
-          succeededRows.push(stuckDaily[i].row);
+          await callApi('approve', { id: stuckDaily[i].id });
+          succeededIds.push(stuckDaily[i].id);
         } catch (err) {
           failCount++;
         }
       }
-      adminPendingCache = adminPendingCache.filter(t => !succeededRows.includes(t.row));
+      adminPendingCache = adminPendingCache.filter(t => !succeededIds.includes(t.id));
       localCacheSet('admin_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
       toast(
         failCount > 0
-          ? 'Approved ' + succeededRows.length + ', ' + failCount + ' failed — tap the button again to retry those'
-          : 'Approved ' + succeededRows.length + ' Daily task(s)',
+          ? 'Approved ' + succeededIds.length + ', ' + failCount + ' failed — tap the button again to retry those'
+          : 'Approved ' + succeededIds.length + ' Daily task(s)',
         failCount > 0 ? 'error' : 'success'
       );
       renderAdminView();
@@ -931,32 +934,32 @@ function adminTaskCard(t) {
   actions.className = 'actions';
   const approveBtn = document.createElement('button');
   approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
-  approveBtn.onclick = () => decide(t.row, true, approveBtn);
+  approveBtn.onclick = () => decide(t.id, true, approveBtn);
   const rejectBtn = document.createElement('button');
   rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
-  rejectBtn.onclick = () => decide(t.row, false, rejectBtn);
+  rejectBtn.onclick = () => decide(t.id, false, rejectBtn);
   actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
   card.appendChild(actions);
   return card;
 }
 
-async function decide(row, approve, btn) {
+async function decide(id, approve, btn) {
   const card = btn.closest('.card');
   btn.disabled = true;
   try {
     if (approve) {
-      await callApi('approve', { row });
+      await callApi('approve', { id });
       toast('Task approved', 'success');
     } else {
       const remark = (prompt('Reason for declining (required):') || '').trim();
       if (!remark) { toast('Please enter a reason for declining', 'error'); btn.disabled = false; return; }
-      await callApi('reject', { row, remark });
+      await callApi('reject', { id, remark });
       toast('Task declined — sent back to doer', 'success');
     }
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => {
-      adminPendingCache = adminPendingCache.filter(t => t.row !== row);
+      adminPendingCache = adminPendingCache.filter(t => t.id !== id);
       renderAdminView();
     }, 180);
   } catch (err) {
