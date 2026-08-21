@@ -390,14 +390,14 @@ async function callApi(action, params = {}) {
   url.searchParams.set('idToken', idToken);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
-  // Without a timeout, a single hung request (Apps Script under load, a
-  // dropped connection, etc.) blocks forever with no error — this showed up
-  // as the bulk "Approve all Daily" loop getting stuck mid-way with no way
-  // to tell if it was still working or dead. 45s (not 20s) because a full,
-  // uncached scan of a large sheet on Apps Script can genuinely take that
-  // long — 20s was firing false "timed out" errors on real, in-progress requests.
+  // Without a timeout, a hung request blocks forever with no error. Normal
+  // reads now come from the backend's snapshot and return in well under a
+  // second, but the very first request after a cache expiry has to build
+  // that snapshot from the (slow, formula-heavy) sheet — which can take a
+  // couple of minutes. So the ceiling is generous; it's a backstop for a
+  // genuinely dead request, not the expected path.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  const timeoutId = setTimeout(() => controller.abort(), 150000);
   let res;
   try {
     res = await fetch(url.toString(), { signal: controller.signal });
@@ -474,6 +474,31 @@ function localCacheSet(key, value) {
 // ------------------------------------------------------------
 let doerViewHasData = false; // true once the view has shown real (cached or live) data — guards against a failed refresh wiping a working screen
 
+// The backend serves reads from a snapshot it rebuilds in the background,
+// so responses carry when that snapshot was built and whether a rebuild is
+// currently queued. Kept here so the Refresh buttons can say something
+// accurate instead of implying the data is live to the second.
+let lastBuiltAt = null;
+let lastRefreshQueued = false;
+
+function freshnessLabel() {
+  if (!lastBuiltAt) return '';
+  const secs = Math.max(0, Math.round((Date.now() - lastBuiltAt) / 1000));
+  if (secs < 60) return 'just now';
+  const mins = Math.round(secs / 60);
+  return mins === 1 ? '1 min ago' : mins + ' min ago';
+}
+
+// A manual Refresh can't rebuild the snapshot inline — on a sheet this size
+// that takes longer than the browser will wait — so the backend queues a
+// background rebuild and serves what it has. Say that plainly rather than
+// claiming the data is live.
+function refreshToastMessage() {
+  if (lastRefreshQueued) return 'Updating from the sheet — tap Refresh again in a minute for the newest data';
+  const age = freshnessLabel();
+  return age ? 'Showing data from ' + age : 'Refreshed';
+}
+
 async function loadDoerView(force) {
   const cacheKey = 'dashboard_v2_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
@@ -491,6 +516,8 @@ async function loadDoerView(force) {
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
     doerOverdueCache = data.overdue || [];
+    lastBuiltAt = data.builtAt || null;
+    lastRefreshQueued = !!data.refreshing;
     localCacheSet(cacheKey, data);
     doerFilter = "All";
     renderDoerView(); // refresh with live data
@@ -570,7 +597,7 @@ function renderDoerView() {
     e.target.disabled = true;
     e.target.textContent = 'Refreshing…';
     const ok = await loadDoerView(true);
-    if (ok) toast('Refreshed from the sheet', 'success');
+    if (ok) toast(refreshToastMessage(), 'success');
   };
 
   app.insertAdjacentHTML('beforeend',
@@ -717,6 +744,8 @@ async function loadAdminView(force) {
     adminOverdueCache = data.overdue;
     adminPerformanceCache = data.performance || [];
     adminRejectedCache = data.rejected || [];
+    lastBuiltAt = data.builtAt || null;
+    lastRefreshQueued = !!data.refreshing;
     localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
     adminFilter = "All";
     renderAdminView(); // refresh with live data
@@ -759,7 +788,7 @@ function renderAdminView() {
     e.target.disabled = true;
     e.target.textContent = 'Refreshing…';
     const ok = await loadAdminView(true);
-    if (ok) toast('Refreshed from the sheet', 'success');
+    if (ok) toast(refreshToastMessage(), 'success');
   };
 
   app.insertAdjacentHTML('beforeend',
