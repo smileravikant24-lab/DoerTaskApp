@@ -360,6 +360,8 @@ function signInWithToken(token) {
   document.getElementById('userEmailLabel').textContent = userEmail;
 
   adminShowMyTasks = false;
+  doerViewHasData = false;
+  adminViewHasData = false;
   document.getElementById('pageTitle').textContent = isAdmin ? "Review Panel" : "My Tasks Today";
   if (isAdmin) loadAdminView(); else loadDoerView();
 }
@@ -391,9 +393,11 @@ async function callApi(action, params = {}) {
   // Without a timeout, a single hung request (Apps Script under load, a
   // dropped connection, etc.) blocks forever with no error — this showed up
   // as the bulk "Approve all Daily" loop getting stuck mid-way with no way
-  // to tell if it was still working or dead.
+  // to tell if it was still working or dead. 45s (not 20s) because a full,
+  // uncached scan of a large sheet on Apps Script can genuinely take that
+  // long — 20s was firing false "timed out" errors on real, in-progress requests.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
   let res;
   try {
     res = await fetch(url.toString(), { signal: controller.signal });
@@ -468,6 +472,8 @@ function localCacheSet(key, value) {
 // ------------------------------------------------------------
 // DOER VIEW
 // ------------------------------------------------------------
+let doerViewHasData = false; // true once the view has shown real (cached or live) data — guards against a failed refresh wiping a working screen
+
 async function loadDoerView(force) {
   const cacheKey = 'dashboard_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
@@ -478,6 +484,7 @@ async function loadDoerView(force) {
     doerFilter = "All";
     renderDoerView(); // instant paint from last-known data
     updateRejectedBadge();
+    doerViewHasData = true;
   }
   try {
     const data = await callApi('dashboard', force ? { force: 1 } : {});
@@ -489,11 +496,17 @@ async function loadDoerView(force) {
     renderDoerView(); // refresh with live data
     notifyNewRejections(doerRejectedCache);
     updateRejectedBadge();
+    doerViewHasData = true;
+    return true;
   } catch (err) {
-    if (!cached) {
+    // Only replace the screen with an error box if there's nothing already
+    // showing — otherwise a failed Refresh would wipe out a perfectly good
+    // view that was already on screen, instead of just reporting the error.
+    if (!doerViewHasData) {
       document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
     }
     toast(err.message, 'error');
+    return false;
   }
 }
 
@@ -556,8 +569,8 @@ function renderDoerView() {
   document.getElementById('doerRefreshBtn').onclick = async (e) => {
     e.target.disabled = true;
     e.target.textContent = 'Refreshing…';
-    await loadDoerView(true);
-    toast('Refreshed from the sheet', 'success');
+    const ok = await loadDoerView(true);
+    if (ok) toast('Refreshed from the sheet', 'success');
   };
 
   app.insertAdjacentHTML('beforeend',
@@ -666,6 +679,8 @@ let adminOverdueCache = [];
 let adminPerformanceCache = [];
 let adminRejectedCache = [];
 
+let adminViewHasData = false; // true once the panel has shown real (cached or live) data — guards against a failed refresh wiping a working screen
+
 async function loadAdminView(force) {
   const cacheKey = 'admin_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
@@ -676,6 +691,7 @@ async function loadAdminView(force) {
     adminRejectedCache = cached.rejected || [];
     adminFilter = "All";
     renderAdminView(); // instant paint from last-known data
+    adminViewHasData = true;
   }
   // Sequential, not parallel — the Apps Script backend is a single-instance
   // web app and firing 4 requests at once (especially with force=1, which
@@ -693,33 +709,34 @@ async function loadAdminView(force) {
   catch (err) { rejectedResult = { status: 'rejected', reason: err }; }
 
   const coreFailed = pendingResult.status === 'rejected' && overdueResult.status === 'rejected';
-  if (coreFailed && !cached) {
+  if (coreFailed && !adminViewHasData) {
     document.getElementById('app').innerHTML = '<div class="error-box">' + pendingResult.reason.message + '</div>';
     toast(pendingResult.reason.message, 'error');
-    return;
+    return false;
   }
 
+  // On failure, keep whatever was already loaded instead of blanking it out
+  // — a failed refresh used to reset performance/rejected to an empty array
+  // even when good data was already on screen, which looked like the data
+  // had simply vanished.
+  let anyFailed = false;
   if (pendingResult.status === 'fulfilled') adminPendingCache = pendingResult.value;
-  else toast('Review list: ' + pendingResult.reason.message, 'error');
+  else { anyFailed = true; toast('Review list: ' + pendingResult.reason.message, 'error'); }
 
   if (overdueResult.status === 'fulfilled') adminOverdueCache = overdueResult.value;
-  else toast('Overdue: ' + overdueResult.reason.message, 'error');
+  else { anyFailed = true; toast('Overdue: ' + overdueResult.reason.message, 'error'); }
 
   if (performanceResult.status === 'fulfilled') adminPerformanceCache = performanceResult.value;
-  else {
-    adminPerformanceCache = [];
-    toast('Performance: ' + performanceResult.reason.message, 'error');
-  }
+  else { anyFailed = true; toast('Performance: ' + performanceResult.reason.message, 'error'); }
 
   if (rejectedResult.status === 'fulfilled') adminRejectedCache = rejectedResult.value;
-  else {
-    adminRejectedCache = [];
-    toast('Rejected: ' + rejectedResult.reason.message, 'error');
-  }
+  else { anyFailed = true; toast('Rejected: ' + rejectedResult.reason.message, 'error'); }
 
   localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
   adminFilter = "All";
   renderAdminView(); // refresh with live data
+  adminViewHasData = true;
+  return !anyFailed;
 }
 
 function initials(name) {
@@ -746,8 +763,8 @@ function renderAdminView() {
   document.getElementById('adminRefreshBtn').onclick = async (e) => {
     e.target.disabled = true;
     e.target.textContent = 'Refreshing…';
-    await loadAdminView(true);
-    toast('Refreshed from the sheet', 'success');
+    const ok = await loadAdminView(true);
+    if (ok) toast('Refreshed from the sheet', 'success');
   };
 
   app.insertAdjacentHTML('beforeend',
