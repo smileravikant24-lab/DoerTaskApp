@@ -475,7 +475,7 @@ function localCacheSet(key, value) {
 let doerViewHasData = false; // true once the view has shown real (cached or live) data — guards against a failed refresh wiping a working screen
 
 async function loadDoerView(force) {
-  const cacheKey = 'dashboard_' + userEmail;
+  const cacheKey = 'dashboard_v2_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     doerTodayCache = cached.today;
@@ -522,7 +522,7 @@ function updateRejectedBadge() {
 
 function notifyNewRejections(rejectedList) {
   if (!('Notification' in window) || !userEmail) return;
-  const seenKey = 'doerapp_seenRejected_' + userEmail;
+  const seenKey = 'doerapp_seenRejected_v2_' + userEmail;
   const seenIds = new Set(localCacheGet(seenKey) || []);
   const currentIds = rejectedList.map(t => t.id);
   const newlyRejected = rejectedList.filter(t => !seenIds.has(t.id));
@@ -645,6 +645,16 @@ function taskCard(t, kind) {
 
 async function markDone(t, kind, btn) {
   const id = t.id;
+  if (!id) {
+    // Defensive: a task rendered from a stale/old-format cached snapshot
+    // (from before tasks were identified by ID instead of row number) would
+    // have no id — sending that to the backend as the literal string
+    // "undefined" produced a confusing "Task not found" error. Force a
+    // fresh reload instead of letting that reach the server.
+    toast('This task list is out of date — refreshing…', 'error');
+    loadDoerView(true);
+    return;
+  }
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
@@ -662,7 +672,7 @@ async function markDone(t, kind, btn) {
     // Without this, the local snapshot used to instant-paint on the next
     // page load still has the task in it — so it flashes back as
     // "rejected" on refresh until the live API refetch catches up.
-    localCacheSet('dashboard_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache });
+    localCacheSet('dashboard_v2_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache });
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
@@ -685,7 +695,7 @@ let adminRejectedCache = [];
 let adminViewHasData = false; // true once the panel has shown real (cached or live) data — guards against a failed refresh wiping a working screen
 
 async function loadAdminView(force) {
-  const cacheKey = 'admin_' + userEmail;
+  const cacheKey = 'admin_v2_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     adminPendingCache = cached.pending;
@@ -808,7 +818,7 @@ function renderAdminView() {
         const succeededIds = result.approved || [];
         const failCount = (result.failed || []).length;
         adminPendingCache = adminPendingCache.filter(t => !succeededIds.includes(t.id));
-        localCacheSet('admin_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+        localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
         toast(
           failCount > 0
             ? 'Approved ' + succeededIds.length + ', ' + failCount + ' failed — tap the button again to retry those'
@@ -927,6 +937,13 @@ function adminTaskCard(t) {
 }
 
 async function decide(id, approve, btn) {
+  if (!id) {
+    // Defensive: same as markDone's guard — a stale cached card with no id
+    // must never reach the backend as the literal string "undefined".
+    toast('This task list is out of date — refreshing…', 'error');
+    loadAdminView(true);
+    return;
+  }
   const card = btn.closest('.card');
   btn.disabled = true;
   try {
