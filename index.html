@@ -696,50 +696,32 @@ async function loadAdminView(force) {
     renderAdminView(); // instant paint from last-known data
     adminViewHasData = true;
   }
-  // Sequential, not parallel — the Apps Script backend is a single-instance
-  // web app and firing 4 requests at once (especially with force=1, which
-  // makes each one do a full uncached sheet scan) made it prone to dropping
-  // one of them with a generic "Failed to fetch".
-  const forceParams = force ? { force: 1 } : {};
-  let pendingResult, overdueResult, performanceResult, rejectedResult;
-  try { pendingResult = { status: 'fulfilled', value: await callApi('pendingApprovals', forceParams) }; }
-  catch (err) { pendingResult = { status: 'rejected', reason: err }; }
-  try { overdueResult = { status: 'fulfilled', value: await callApi('overdueSummary', forceParams) }; }
-  catch (err) { overdueResult = { status: 'rejected', reason: err }; }
-  try { performanceResult = { status: 'fulfilled', value: await callApi('performance', forceParams) }; }
-  catch (err) { performanceResult = { status: 'rejected', reason: err }; }
-  try { rejectedResult = { status: 'fulfilled', value: await callApi('rejectedSummary', forceParams) }; }
-  catch (err) { rejectedResult = { status: 'rejected', reason: err }; }
-
-  const coreFailed = pendingResult.status === 'rejected' && overdueResult.status === 'rejected';
-  if (coreFailed && !adminViewHasData) {
-    document.getElementById('app').innerHTML = '<div class="error-box">' + pendingResult.reason.message + '</div>';
-    toast(pendingResult.reason.message, 'error');
+  try {
+    // One combined request instead of 4 separate ones (pendingApprovals /
+    // overdueSummary / rejectedSummary / performance) — those were each a
+    // full sheet scan as their own network round-trip, which was 4x the
+    // latency and 4x the Apps Script execution-time quota usage for what
+    // is fundamentally one pass over one sheet.
+    const data = await callApi('adminSummary', force ? { force: 1 } : {});
+    adminPendingCache = data.pending;
+    adminOverdueCache = data.overdue;
+    adminPerformanceCache = data.performance || [];
+    adminRejectedCache = data.rejected || [];
+    localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+    adminFilter = "All";
+    renderAdminView(); // refresh with live data
+    adminViewHasData = true;
+    return true;
+  } catch (err) {
+    // Only replace the screen with an error box if there's nothing already
+    // showing — otherwise a failed Refresh would wipe out a perfectly good
+    // view that was already on screen, instead of just reporting the error.
+    if (!adminViewHasData) {
+      document.getElementById('app').innerHTML = '<div class="error-box">' + err.message + '</div>';
+    }
+    toast(err.message, 'error');
     return false;
   }
-
-  // On failure, keep whatever was already loaded instead of blanking it out
-  // — a failed refresh used to reset performance/rejected to an empty array
-  // even when good data was already on screen, which looked like the data
-  // had simply vanished.
-  let anyFailed = false;
-  if (pendingResult.status === 'fulfilled') adminPendingCache = pendingResult.value;
-  else { anyFailed = true; toast('Review list: ' + pendingResult.reason.message, 'error'); }
-
-  if (overdueResult.status === 'fulfilled') adminOverdueCache = overdueResult.value;
-  else { anyFailed = true; toast('Overdue: ' + overdueResult.reason.message, 'error'); }
-
-  if (performanceResult.status === 'fulfilled') adminPerformanceCache = performanceResult.value;
-  else { anyFailed = true; toast('Performance: ' + performanceResult.reason.message, 'error'); }
-
-  if (rejectedResult.status === 'fulfilled') adminRejectedCache = rejectedResult.value;
-  else { anyFailed = true; toast('Rejected: ' + rejectedResult.reason.message, 'error'); }
-
-  localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
-  adminFilter = "All";
-  renderAdminView(); // refresh with live data
-  adminViewHasData = true;
-  return !anyFailed;
 }
 
 function initials(name) {
@@ -816,25 +798,26 @@ function renderAdminView() {
     );
     document.getElementById('autoApproveDailyBtn').onclick = async (e) => {
       e.target.disabled = true;
-      const succeededIds = [];
-      let failCount = 0;
-      for (let i = 0; i < stuckDaily.length; i++) {
-        e.target.textContent = 'Approving… (' + (i + 1) + '/' + stuckDaily.length + ')';
-        try {
-          await callApi('approve', { id: stuckDaily[i].id });
-          succeededIds.push(stuckDaily[i].id);
-        } catch (err) {
-          failCount++;
-        }
+      e.target.textContent = 'Approving…';
+      // One request approving all of them, instead of one request per task
+      // (which meant N network round-trips — each with its own overhead —
+      // for N tasks; this was the main reason the bulk button felt slow
+      // and prone to timing out partway through).
+      try {
+        const result = await callApi('bulkApprove', { ids: stuckDaily.map(t => t.id).join(',') });
+        const succeededIds = result.approved || [];
+        const failCount = (result.failed || []).length;
+        adminPendingCache = adminPendingCache.filter(t => !succeededIds.includes(t.id));
+        localCacheSet('admin_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+        toast(
+          failCount > 0
+            ? 'Approved ' + succeededIds.length + ', ' + failCount + ' failed — tap the button again to retry those'
+            : 'Approved ' + succeededIds.length + ' Daily task(s)',
+          failCount > 0 ? 'error' : 'success'
+        );
+      } catch (err) {
+        toast(err.message, 'error');
       }
-      adminPendingCache = adminPendingCache.filter(t => !succeededIds.includes(t.id));
-      localCacheSet('admin_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
-      toast(
-        failCount > 0
-          ? 'Approved ' + succeededIds.length + ', ' + failCount + ' failed — tap the button again to retry those'
-          : 'Approved ' + succeededIds.length + ' Daily task(s)',
-        failCount > 0 ? 'error' : 'success'
-      );
       renderAdminView();
     };
   }
