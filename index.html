@@ -1242,24 +1242,37 @@ function adminTaskCard(t) {
 
 async function decide(id, approve, btn) {
   if (!id) {
-    // Defensive: same as markDone's guard — a stale cached card with no id
-    // must never reach the backend as the literal string "undefined".
     toast('This task list is out of date — refreshing…', 'error');
     loadAdminView(true);
     return;
   }
   const card = btn.closest('.card');
+  const originalText = btn.textContent;
   btn.disabled = true;
-  try {
-    if (approve) {
-      await callApi('approve', { id });
-      toast('Task approved', 'success');
-    } else {
-      const remark = (prompt('Reason for declining (required):') || '').trim();
-      if (!remark) { toast('Please enter a reason for declining', 'error'); btn.disabled = false; return; }
-      await callApi('reject', { id, remark });
-      toast('Task declined — sent back to doer', 'success');
+
+  let remark = '';
+  if (!approve) {
+    remark = (prompt('Reason for declining (required):') || '').trim();
+    if (!remark) { toast('Please enter a reason for declining', 'error'); btn.disabled = false; return; }
+  }
+
+  let result = null, lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      btn.textContent = 'Retrying…';
+      await new Promise(r => setTimeout(r, attempt * 1500));
     }
+    try {
+      result = approve ? await callApi('approve', { id }) : await callApi('reject', { id, remark });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  if (result) {
+    toast(approve ? 'Task approved' : 'Task declined — sent back to doer', 'success');
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => {
@@ -1268,9 +1281,33 @@ async function decide(id, approve, btn) {
       localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
       renderAdminView();
     }, 180);
-  } catch (err) {
-    toast(err.message, 'error');
-    btn.disabled = false;
+  } else {
+    btn.textContent = 'Checking…';
+    try {
+      const freshData = await callApi('adminSummary', { force: 1 });
+      if (freshData.pending) adminPendingCache = freshData.pending;
+      if (freshData.overdue) adminOverdueCache = freshData.overdue;
+      if (freshData.performance) adminPerformanceCache = freshData.performance;
+      if (freshData.rejected) adminRejectedCache = freshData.rejected;
+      if (freshData.doers) doersList = freshData.doers;
+      localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+      const taskGone = !adminPendingCache.some(t => String(t.id) === String(id)) &&
+                       !adminOverdueCache.some(t => String(t.id) === String(id));
+      if (taskGone) {
+        toast(approve ? 'Task approved' : 'Task declined — sent back to doer', 'success');
+        card.style.transition = 'opacity .2s ease';
+        card.style.opacity = '0';
+        setTimeout(() => renderAdminView(), 180);
+      } else {
+        toast(lastErr ? lastErr.message : 'Action failed — please try again', 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    } catch (_) {
+      toast(lastErr ? lastErr.message : 'Action failed — please try again', 'error');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   }
 }
 </script>
