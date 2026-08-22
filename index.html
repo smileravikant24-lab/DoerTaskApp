@@ -119,6 +119,32 @@
   .legend-panel.open { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 6px 14px; }
   .legend-panel b { color: var(--ink); }
 
+  /* --- Department / user filter bar --- */
+  .filter-bar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; margin-bottom: 12px;
+  }
+  .filter-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .filter-label {
+    font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); white-space: nowrap;
+  }
+  .filter-select {
+    font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink);
+    background: var(--paper); border: 1.5px solid var(--line); border-radius: 8px;
+    padding: 6px 9px; cursor: pointer; max-width: 190px;
+  }
+  .filter-select:hover { border-color: var(--ink-light); }
+  .filter-select.on { border-color: var(--ink); background: #fff; }
+  .clear-filters {
+    margin-left: auto; font-size: 12px; font-weight: 700; color: var(--red);
+    background: none; border: none; cursor: pointer; padding: 4px;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .summary-line { font-size: 12.5px; color: var(--muted); margin: 0 2px 12px; }
+  .summary-line b { color: var(--ink); font-weight: 800; }
+
   /* --- User group tiles (admin) --- */
   .group {
     background: var(--card); border: 1px solid var(--line); border-radius: 14px;
@@ -284,10 +310,13 @@ let idToken = null;
 let userEmail = null;
 let isAdmin = false;
 
-let adminFilter = "All";
+let adminFilter = "All";       // frequency
+let adminDeptFilter = "All";   // department
+let adminUserFilter = "All";   // doer (by email)
 let adminPendingCache = [];
 
 let doerFilter = "All";
+let doerDeptFilter = "All";
 let doerStatusFilter = "all"; // 'all' | 'overdue' | 'rejected' | 'today'
 let doerTodayCache = [];
 let doerRejectedCache = [];
@@ -410,6 +439,101 @@ async function callApi(action, params = {}) {
   const json = await res.json();
   if (!json.ok) throw new Error(json.error);
   return json.data;
+}
+
+// ------------------------------------------------------------
+// SHARED: escaping. Task names, departments and people's names come from
+// the sheet, so they can contain quotes or angle brackets — those must not
+// be able to break the markup they're inserted into.
+// ------------------------------------------------------------
+function escHtml(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ------------------------------------------------------------
+// ADMIN FILTERS — frequency + department + user, applied together
+// ------------------------------------------------------------
+
+// Applies the active admin filters. Pass skipFreq/skipDept/skipUser to
+// leave one out — used to count each filter's options against the set the
+// OTHER filters already narrowed to, so every number shown is what you'd
+// actually get by picking it.
+function applyAdminFilters(list, skip) {
+  skip = skip || {};
+  return list.filter(t =>
+    (skip.freq || adminFilter === 'All' || t.freq === adminFilter) &&
+    (skip.dept || adminDeptFilter === 'All' || String(t.department || '').trim() === adminDeptFilter) &&
+    (skip.user || adminUserFilter === 'All' || t.email === adminUserFilter)
+  );
+}
+
+function renderAdminFilters(container, source) {
+  const freqBase = applyAdminFilters(source, { freq: true });
+  const deptBase = applyAdminFilters(source, { dept: true });
+  const userBase = applyAdminFilters(source, { user: true });
+
+  // --- frequency chips ---
+  const freqs = [...new Set(source.map(t => t.freq).filter(Boolean))];
+  let html = '<div class="filter-row">' +
+    '<div class="chip freq-chip ' + (adminFilter === 'All' ? 'active' : '') + '" data-freq="All">All (' + freqBase.length + ')</div>';
+  freqs.forEach(f => {
+    const n = freqBase.filter(t => t.freq === f).length;
+    html += '<div class="chip freq-chip ' + (adminFilter === f ? 'active' : '') + '" data-freq="' + escHtml(f) + '">' +
+            escHtml(FREQ_LABELS[f] || f) + ' (' + n + ')</div>';
+  });
+  html += '<button class="legend-btn" id="legendToggle">Legend</button></div>';
+  html += '<div class="legend-panel" id="legendPanel">' +
+    Object.entries(FREQ_LABELS).map(([code, label]) => '<div><b>' + code + '</b> — ' + label + '</div>').join('') +
+    '</div>';
+
+  // --- department + user dropdowns ---
+  const depts = [...new Set(source.map(t => String(t.department || '').trim()).filter(Boolean))].sort();
+  const nameByEmail = {};
+  source.forEach(t => { if (t.email && !nameByEmail[t.email]) nameByEmail[t.email] = t.name || t.email; });
+  const users = Object.keys(nameByEmail).sort((a, b) =>
+    String(nameByEmail[a]).localeCompare(String(nameByEmail[b])));
+
+  html += '<div class="filter-bar">';
+
+  html += '<div class="filter-group"><span class="filter-label">Department</span>' +
+          '<select class="filter-select' + (adminDeptFilter !== 'All' ? ' on' : '') + '" id="deptSelect">' +
+          '<option value="All">All (' + deptBase.length + ')</option>';
+  depts.forEach(dp => {
+    const n = deptBase.filter(t => String(t.department || '').trim() === dp).length;
+    html += '<option value="' + escHtml(dp) + '"' + (adminDeptFilter === dp ? ' selected' : '') + '>' +
+            escHtml(dp) + ' (' + n + ')</option>';
+  });
+  html += '</select></div>';
+
+  html += '<div class="filter-group"><span class="filter-label">User</span>' +
+          '<select class="filter-select' + (adminUserFilter !== 'All' ? ' on' : '') + '" id="userSelect">' +
+          '<option value="All">All (' + userBase.length + ')</option>';
+  users.forEach(u => {
+    const n = userBase.filter(t => t.email === u).length;
+    html += '<option value="' + escHtml(u) + '"' + (adminUserFilter === u ? ' selected' : '') + '>' +
+            escHtml(nameByEmail[u]) + ' (' + n + ')</option>';
+  });
+  html += '</select></div>';
+
+  const anyActive = adminFilter !== 'All' || adminDeptFilter !== 'All' || adminUserFilter !== 'All';
+  if (anyActive) html += '<button class="clear-filters" id="clearFilters">Clear filters</button>';
+  html += '</div>';
+
+  container.insertAdjacentHTML('beforeend', html);
+
+  container.querySelectorAll('.freq-chip').forEach(chip => {
+    chip.onclick = () => { adminFilter = chip.dataset.freq; renderAdminView(); };
+  });
+  document.getElementById('legendToggle').onclick = () =>
+    document.getElementById('legendPanel').classList.toggle('open');
+  document.getElementById('deptSelect').onchange = (e) => { adminDeptFilter = e.target.value; renderAdminView(); };
+  document.getElementById('userSelect').onchange = (e) => { adminUserFilter = e.target.value; renderAdminView(); };
+  const clearBtn = document.getElementById('clearFilters');
+  if (clearBtn) clearBtn.onclick = () => {
+    adminFilter = 'All'; adminDeptFilter = 'All'; adminUserFilter = 'All'; renderAdminView();
+  };
 }
 
 // ------------------------------------------------------------
@@ -614,9 +738,33 @@ function renderDoerView() {
 
   renderFilterRow(app, allItems, doerFilter, (freq) => { doerFilter = freq; renderDoerView(); });
 
-  const todayFiltered = doerFilter === "All" ? doerTodayCache : doerTodayCache.filter(t => t.freq === doerFilter);
-  const rejectedFiltered = doerFilter === "All" ? doerRejectedCache : doerRejectedCache.filter(t => t.freq === doerFilter);
-  const overdueFiltered = doerFilter === "All" ? doerOverdueCache : doerOverdueCache.filter(t => t.freq === doerFilter);
+  // Department filter — only worth showing when the person actually has
+  // tasks in more than one department; otherwise it's just noise.
+  const doerDepts = [...new Set(allItems.map(t => String(t.department || '').trim()).filter(Boolean))].sort();
+  if (doerDepts.length > 1) {
+    let dHtml = '<div class="filter-bar"><div class="filter-group">' +
+      '<span class="filter-label">Department</span>' +
+      '<select class="filter-select' + (doerDeptFilter !== 'All' ? ' on' : '') + '" id="doerDeptSelect">' +
+      '<option value="All">All (' + allItems.length + ')</option>';
+    doerDepts.forEach(dp => {
+      const n = allItems.filter(t => String(t.department || '').trim() === dp).length;
+      dHtml += '<option value="' + escHtml(dp) + '"' + (doerDeptFilter === dp ? ' selected' : '') + '>' +
+               escHtml(dp) + ' (' + n + ')</option>';
+    });
+    dHtml += '</select></div></div>';
+    app.insertAdjacentHTML('beforeend', dHtml);
+    document.getElementById('doerDeptSelect').onchange = (e) => {
+      doerDeptFilter = e.target.value; renderDoerView();
+    };
+  }
+
+  const matchesDoerFilters = (t) =>
+    (doerFilter === "All" || t.freq === doerFilter) &&
+    (doerDeptFilter === "All" || String(t.department || '').trim() === doerDeptFilter);
+
+  const todayFiltered = doerTodayCache.filter(matchesDoerFilters);
+  const rejectedFiltered = doerRejectedCache.filter(matchesDoerFilters);
+  const overdueFiltered = doerOverdueCache.filter(matchesDoerFilters);
 
   const showOverdue = doerStatusFilter === 'all' || doerStatusFilter === 'overdue';
   const showRejected = doerStatusFilter === 'all' || doerStatusFilter === 'rejected';
@@ -729,7 +877,7 @@ async function loadAdminView(force) {
     adminOverdueCache = cached.overdue;
     adminPerformanceCache = cached.performance || [];
     adminRejectedCache = cached.rejected || [];
-    adminFilter = "All";
+    adminFilter = "All"; adminDeptFilter = "All"; adminUserFilter = "All";
     renderAdminView(); // instant paint from last-known data
     adminViewHasData = true;
   }
@@ -747,7 +895,7 @@ async function loadAdminView(force) {
     lastBuiltAt = data.builtAt || null;
     lastRefreshQueued = !!data.refreshing;
     localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
-    adminFilter = "All";
+  adminFilter = "All"; adminDeptFilter = "All"; adminUserFilter = "All";
     renderAdminView(); // refresh with live data
     adminViewHasData = true;
     return true;
@@ -803,9 +951,10 @@ function renderAdminView() {
         '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>' +
     '</div>'
   );
-  document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; adminFilter = 'All'; renderAdminView(); };
-  document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; adminFilter = 'All'; renderAdminView(); };
-  document.getElementById('tabRejected').onclick = () => { adminTab = 'rejected'; adminFilter = 'All'; renderAdminView(); };
+  const resetAdminFilters = () => { adminFilter = 'All'; adminDeptFilter = 'All'; adminUserFilter = 'All'; };
+  document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; resetAdminFilters(); renderAdminView(); };
+  document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; resetAdminFilters(); renderAdminView(); };
+  document.getElementById('tabRejected').onclick = () => { adminTab = 'rejected'; resetAdminFilters(); renderAdminView(); };
   document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
 
   if (adminTab === 'performance') {
@@ -814,9 +963,9 @@ function renderAdminView() {
   }
 
   const source = adminTab === 'approvals' ? adminPendingCache : (adminTab === 'overdue' ? adminOverdueCache : adminRejectedCache);
-  renderFilterRow(app, source, adminFilter, (freq) => { adminFilter = freq; renderAdminView(); });
+  renderAdminFilters(app, source);
 
-  const filtered = adminFilter === "All" ? source : source.filter(t => t.freq === adminFilter);
+  const filtered = applyAdminFilters(source);
 
   const sectionTitles = {
     approvals: 'To Review',
@@ -862,9 +1011,19 @@ function renderAdminView() {
   }
   app.insertAdjacentHTML('beforeend', '<div class="section-title">' + sectionTitles[adminTab] + '</div>');
   if (filtered.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing here.</div>');
+    const filtersOn = adminFilter !== 'All' || adminDeptFilter !== 'All' || adminUserFilter !== 'All';
+    app.insertAdjacentHTML('beforeend',
+      '<div class="empty">' + (filtersOn
+        ? '🔍 Nothing matches these filters — try clearing them.'
+        : '✅ All clear, nothing here.') + '</div>');
     return;
   }
+
+  // "kiske kitne pending hai" at a glance, for whatever is currently filtered
+  const peopleCount = new Set(filtered.map(t => t.email)).size;
+  app.insertAdjacentHTML('beforeend',
+    '<div class="summary-line">Showing <b>' + filtered.length + '</b> task' + (filtered.length === 1 ? '' : 's') +
+    ' across <b>' + peopleCount + '</b> ' + (peopleCount === 1 ? 'person' : 'people') + '</div>');
 
   // One tile per user — collapsed by default, tap a user to reveal their tasks
   const groups = new Map();
