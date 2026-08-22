@@ -890,42 +890,51 @@ async function markDone(t, kind, btn) {
   const card = btn.closest('.card');
   btn.disabled = true;
   btn.textContent = 'Saving…';
-  try {
-    // The backend decides whether the task auto-approves (Daily-frequency
-    // tasks, or the admin doing their own tasks) — it reads freq straight
-    // from the sheet rather than trusting a client-supplied flag. Identified
-    // by a stable task id (not sheet row number) — row numbers shift if the
-    // Master sheet gets manually sorted/re-ordered, which used to silently
-    // update the wrong task.
-    const result = await callApi('markDone', { id });
+
+  // Apps Script web-app responses sometimes drop mid-flight (the sheet write
+  // already happened but the HTTP response never arrives). Retry up to 3
+  // times with backoff before treating it as a real failure.
+  let result = null;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      btn.textContent = 'Retrying…';
+      await new Promise(r => setTimeout(r, attempt * 1500));
+    }
+    try {
+      result = await callApi('markDone', { id });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  if (result) {
+    // Success path
     if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.id !== id);
     else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.id !== id);
     else doerTodayCache = doerTodayCache.filter(t => t.id !== id);
-    // Non-Daily tasks aren't finished yet — column H stays blank until the
-    // admin approves. Move it to "awaiting" so the doer can still see it
-    // instead of it vanishing with no explanation.
     if (!result.autoApproved) {
       doerAwaitingCache = doerAwaitingCache.concat([
         { id: id, task: t.task, department: t.department, freq: t.freq, planned: t.planned, actual: '', status: 'Submitted' }
       ]);
     }
-    // Without this, the local snapshot used to instant-paint on the next
-    // page load still has the task in it — so it flashes back as
-    // "rejected" on refresh until the live API refetch catches up.
     localCacheSet('dashboard_v2_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache });
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
     toast(result.autoApproved ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
-  } catch (err) {
-    // Apps Script may have written the cell before the network dropped.
-    // Re-fetch the dashboard silently; if the task is gone it succeeded.
+  } else {
+    // All 3 attempts failed. The sheet write may have landed on attempt 1
+    // even though the response didn't reach us. Re-fetch the dashboard; if
+    // the task has disappeared it succeeded despite the network error.
     btn.textContent = 'Checking…';
     try {
       const apiParams = {};
       if (isAdmin && viewAsEmail) apiParams.viewAs = viewAsEmail;
       const freshData = await callApi('dashboard', apiParams);
-      doerTodayCache   = freshData.today;
+      doerTodayCache    = freshData.today;
       doerRejectedCache = freshData.rejected;
       doerOverdueCache  = freshData.overdue  || [];
       doerAwaitingCache = freshData.awaiting || [];
@@ -935,11 +944,10 @@ async function markDone(t, kind, btn) {
       const taskGone = !doerTodayCache.some(x => String(x.id) === String(id)) &&
                        !doerOverdueCache.some(x => String(x.id) === String(id)) &&
                        !doerRejectedCache.some(x => String(x.id) === String(id));
-      toast(taskGone ? 'Task submitted successfully' : err.message,
+      toast(taskGone ? 'Task submitted successfully' : lastErr.message,
             taskGone ? 'success' : 'error');
     } catch (_) {
-      // Re-fetch also failed — restore the button so the user can retry.
-      toast(err.message, 'error');
+      toast(lastErr.message, 'error');
       btn.disabled = false;
       btn.textContent = (kind === 'today') ? 'Done ✓' : 'Mark Done Now';
     }
