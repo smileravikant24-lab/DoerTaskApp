@@ -1125,9 +1125,25 @@ function userGroupTile(group, mode) {
 function overdueTaskCard(t) {
   const card = document.createElement('div');
   card.className = 'card rejected';
+  const isAwaiting = t.status === 'Submitted';
+  const badge = isAwaiting
+    ? '<span class="badge" style="background:#7c8ba1">Awaiting Approval</span>'
+    : '<span class="badge">Overdue</span>';
   card.innerHTML =
-    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Overdue</span></div>' +
-    '<div class="meta">' + t.department + '<span class="dot">•</span>Was planned ' + t.planned + '</div>';
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + badge + '</div>' +
+    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Was planned ' + escHtml(t.planned) + '</div>';
+  if (isAwaiting) {
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const approveBtn = document.createElement('button');
+    approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
+    approveBtn.onclick = () => decide(t.id, true, approveBtn);
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
+    rejectBtn.onclick = () => decide(t.id, false, rejectBtn);
+    actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
+    card.appendChild(actions);
+  }
   return card;
 }
 
@@ -1186,7 +1202,9 @@ async function decide(id, approve, btn) {
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => {
-      adminPendingCache = adminPendingCache.filter(t => t.id !== id);
+      adminPendingCache = adminPendingCache.filter(t => String(t.id) !== String(id));
+      adminOverdueCache = adminOverdueCache.filter(t => String(t.id) !== String(id));
+      localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
       renderAdminView();
     }, 180);
   } catch (err) {
