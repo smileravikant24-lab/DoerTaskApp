@@ -297,7 +297,7 @@
 const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleusercontent.com";
 const API_URL = "https://script.google.com/macros/s/AKfycbwmL_WFZqZMNFl2-lOe0vWLWQHq50srOinFk3ZnO7eZ-Xti2gXfo8a4BhIMsbzeH0XdTA/exec";
 
-const ADMIN_EMAIL = "pc@satijapaper.com";
+const ADMIN_EMAILS = ["pc@satijapaper.com", "mis@satijapaper.com"];
 const TOKEN_STORAGE_KEY = "doerAppIdToken";
 
 const FREQ_LABELS = {
@@ -309,6 +309,8 @@ const FREQ_LABELS = {
 let idToken = null;
 let userEmail = null;
 let isAdmin = false;
+let viewAsEmail = null;  // when admin views another user's tasks; null = own tasks
+let doersList = [];      // [{email, name}] — populated from adminSummary response
 
 let adminFilter = "All";       // frequency
 let adminDeptFilter = "All";   // department
@@ -386,7 +388,7 @@ function signInWithToken(token) {
   idToken = token;
   const payload = decodeJwt(idToken);
   userEmail = payload.email;
-  isAdmin = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  isAdmin = ADMIN_EMAILS.some(a => a.toLowerCase() === userEmail.toLowerCase());
 
   document.getElementById('signedOut').style.display = 'none';
   document.getElementById('signedIn').style.display = 'block';
@@ -401,7 +403,7 @@ function signInWithToken(token) {
 
 function logout() {
   localStorage.removeItem(TOKEN_STORAGE_KEY);
-  idToken = null; userEmail = null; isAdmin = false;
+  idToken = null; userEmail = null; isAdmin = false; viewAsEmail = null; doersList = [];
   if (window.google && google.accounts && google.accounts.id) {
     google.accounts.id.disableAutoSelect();
   }
@@ -628,7 +630,8 @@ function refreshToastMessage() {
 }
 
 async function loadDoerView(force) {
-  const cacheKey = 'dashboard_v2_' + userEmail;
+  const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
+  const cacheKey = 'dashboard_v2_' + effectiveEmail;
   const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     doerTodayCache = cached.today;
@@ -641,7 +644,9 @@ async function loadDoerView(force) {
     doerViewHasData = true;
   }
   try {
-    const data = await callApi('dashboard', force ? { force: 1 } : {});
+    const apiParams = force ? { force: 1 } : {};
+    if (isAdmin && viewAsEmail) apiParams.viewAs = viewAsEmail;
+    const data = await callApi('dashboard', apiParams);
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
     doerOverdueCache = data.overdue || [];
@@ -719,8 +724,32 @@ function renderDoerView() {
   if (isAdmin && adminShowMyTasks) {
     document.getElementById('backToReviewBtn').onclick = () => {
       adminShowMyTasks = false;
+      viewAsEmail = null;
       document.getElementById('pageTitle').textContent = 'Review Panel';
       loadAdminView();
+    };
+  }
+
+  // Admin "View As" dropdown — lets admin see any user's task list
+  if (isAdmin) {
+    let dropHtml =
+      '<div style="margin-bottom:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">' +
+        '<span style="font-size:13px; color:var(--ink-light); white-space:nowrap;">View as:</span>' +
+        '<select id="viewAsSelect" style="flex:1; min-width:160px; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--ink); font-size:14px; cursor:pointer;">' +
+          '<option value="">— My own tasks</option>';
+    doersList.forEach(d => {
+      const sel = viewAsEmail === d.email ? ' selected' : '';
+      dropHtml += '<option value="' + escHtml(d.email) + '"' + sel + '>' + escHtml(d.name) + ' (' + escHtml(d.email) + ')</option>';
+    });
+    dropHtml += '</select></div>';
+    app.insertAdjacentHTML('beforeend', dropHtml);
+    document.getElementById('viewAsSelect').onchange = (e) => {
+      viewAsEmail = e.target.value || null;
+      const doer = doersList.find(d => d.email === viewAsEmail);
+      document.getElementById('pageTitle').textContent = viewAsEmail
+        ? ('Tasks: ' + (doer ? doer.name : viewAsEmail))
+        : 'My Tasks Today';
+      loadDoerView(true);
     };
   }
   document.getElementById('doerRefreshBtn').onclick = async (e) => {
@@ -928,6 +957,7 @@ async function loadAdminView(force) {
     adminOverdueCache = data.overdue;
     adminPerformanceCache = data.performance || [];
     adminRejectedCache = data.rejected || [];
+    if (data.doers) doersList = data.doers;
     lastBuiltAt = data.builtAt || null;
     lastRefreshQueued = !!data.refreshing;
     localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
@@ -965,6 +995,7 @@ function renderAdminView() {
   );
   document.getElementById('myTasksBtn').onclick = () => {
     adminShowMyTasks = true;
+    viewAsEmail = null;
     document.getElementById('pageTitle').textContent = 'My Tasks Today';
     loadDoerView();
   };
