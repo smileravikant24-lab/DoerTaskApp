@@ -321,6 +321,10 @@ let doerStatusFilter = "all"; // 'all' | 'overdue' | 'rejected' | 'today'
 let doerTodayCache = [];
 let doerRejectedCache = [];
 let doerOverdueCache = [];
+// Non-Daily tasks the doer has marked done that are waiting on the admin.
+// Column H stays blank until approval, so without this the task would just
+// disappear from their screen with no sign it went anywhere.
+let doerAwaitingCache = [];
 
 // ------------------------------------------------------------
 // TOASTS
@@ -630,6 +634,7 @@ async function loadDoerView(force) {
     doerTodayCache = cached.today;
     doerRejectedCache = cached.rejected;
     doerOverdueCache = cached.overdue || [];
+    doerAwaitingCache = cached.awaiting || [];
     doerFilter = "All";
     renderDoerView(); // instant paint from last-known data
     updateRejectedBadge();
@@ -640,6 +645,7 @@ async function loadDoerView(force) {
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
     doerOverdueCache = data.overdue || [];
+    doerAwaitingCache = data.awaiting || [];
     lastBuiltAt = data.builtAt || null;
     lastRefreshQueued = !!data.refreshing;
     localCacheSet(cacheKey, data);
@@ -730,6 +736,8 @@ function renderDoerView() {
       statusChip('overdue', 'Overdue (' + doerOverdueCache.length + ')') +
       statusChip('rejected', 'Rejected (' + doerRejectedCache.length + ')') +
       statusChip('today', 'Due Today (' + doerTodayCache.length + ')') +
+      (doerAwaitingCache.length > 0
+        ? statusChip('awaiting', 'Awaiting Approval (' + doerAwaitingCache.length + ')') : '') +
     '</div>'
   );
   app.querySelectorAll('.status-chip').forEach(chip => {
@@ -765,10 +773,18 @@ function renderDoerView() {
   const todayFiltered = doerTodayCache.filter(matchesDoerFilters);
   const rejectedFiltered = doerRejectedCache.filter(matchesDoerFilters);
   const overdueFiltered = doerOverdueCache.filter(matchesDoerFilters);
+  const awaitingFiltered = doerAwaitingCache.filter(matchesDoerFilters);
 
   const showOverdue = doerStatusFilter === 'all' || doerStatusFilter === 'overdue';
   const showRejected = doerStatusFilter === 'all' || doerStatusFilter === 'rejected';
   const showToday = doerStatusFilter === 'all' || doerStatusFilter === 'today';
+  const showAwaiting = doerStatusFilter === 'all' || doerStatusFilter === 'awaiting';
+
+  if (showAwaiting && awaitingFiltered.length > 0) {
+    app.insertAdjacentHTML('beforeend',
+      '<div class="section-title">⏳ Awaiting approval — done, waiting on approval</div>');
+    awaitingFiltered.forEach(t => app.appendChild(taskCard(t, 'awaiting')));
+  }
 
   if (showOverdue && overdueFiltered.length > 0) {
     app.insertAdjacentHTML('beforeend', '<div class="section-title warn">⏰ Overdue — missed, please complete</div>');
@@ -791,7 +807,8 @@ function renderDoerView() {
   if (doerStatusFilter !== 'all' &&
       ((doerStatusFilter === 'overdue' && overdueFiltered.length === 0) ||
        (doerStatusFilter === 'rejected' && rejectedFiltered.length === 0) ||
-       (doerStatusFilter === 'today' && todayFiltered.length === 0))) {
+       (doerStatusFilter === 'today' && todayFiltered.length === 0) ||
+       (doerStatusFilter === 'awaiting' && awaitingFiltered.length === 0))) {
     app.insertAdjacentHTML('beforeend', '<div class="empty">✅ Nothing in this view.</div>');
   }
 }
@@ -803,10 +820,21 @@ function statusChip(status, label) {
 function taskCard(t, kind) {
   const card = document.createElement('div');
   card.className = (kind === 'today') ? 'card' : 'card rejected';
-  const badge = kind === 'rejected' ? '<span class="badge">Rejected</span>' : (kind === 'overdue' ? '<span class="badge">Overdue</span>' : '');
+  const badge = kind === 'rejected' ? '<span class="badge">Rejected</span>'
+              : (kind === 'overdue' ? '<span class="badge">Overdue</span>'
+              : (kind === 'awaiting' ? '<span class="badge" style="background:var(--ink-light)">Waiting</span>' : ''));
   card.innerHTML =
-    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + badge + '</div>' +
-    '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '</div>';
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + badge + '</div>' +
+    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>';
+
+  if (kind === 'awaiting') {
+    // Already submitted — the doer has nothing left to do on it, so there's
+    // no button. It clears once the admin approves (which fills column H).
+    card.insertAdjacentHTML('beforeend',
+      '<div class="meta" style="margin-top:8px; color:var(--ink-light);">Sent for approval — no action needed from you</div>');
+    return card;
+  }
+
   const actions = document.createElement('div');
   actions.className = 'actions';
   const btn = document.createElement('button');
@@ -844,10 +872,18 @@ async function markDone(t, kind, btn) {
     if (kind === 'rejected') doerRejectedCache = doerRejectedCache.filter(t => t.id !== id);
     else if (kind === 'overdue') doerOverdueCache = doerOverdueCache.filter(t => t.id !== id);
     else doerTodayCache = doerTodayCache.filter(t => t.id !== id);
+    // Non-Daily tasks aren't finished yet — column H stays blank until the
+    // admin approves. Move it to "awaiting" so the doer can still see it
+    // instead of it vanishing with no explanation.
+    if (!result.autoApproved) {
+      doerAwaitingCache = doerAwaitingCache.concat([
+        { id: id, task: t.task, department: t.department, freq: t.freq, planned: t.planned, actual: '', status: 'Submitted' }
+      ]);
+    }
     // Without this, the local snapshot used to instant-paint on the next
     // page load still has the task in it — so it flashes back as
     // "rejected" on refresh until the live API refetch catches up.
-    localCacheSet('dashboard_v2_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache });
+    localCacheSet('dashboard_v2_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache });
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
@@ -1108,9 +1144,12 @@ function rejectedTaskCard(t) {
 function adminTaskCard(t) {
   const card = document.createElement('div');
   card.className = 'card';
+  // No "Actual" here on purpose: a task waiting for review always has a
+  // blank column H (approval is what fills it), so showing "Actual —" on
+  // every card was noise. Approving is what stamps the date.
   card.innerHTML =
-    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '</div>' +
-    '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '<span class="dot">•</span>Actual ' + (t.actual || '—') + '</div>';
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '</div>' +
+    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>';
   const actions = document.createElement('div');
   actions.className = 'actions';
   const approveBtn = document.createElement('button');
