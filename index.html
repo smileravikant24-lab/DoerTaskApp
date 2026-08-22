@@ -918,9 +918,31 @@ async function markDone(t, kind, btn) {
     setTimeout(() => renderDoerView(), 180);
     toast(result.autoApproved ? 'Task marked as done' : 'Task marked as done — sent for approval', 'success');
   } catch (err) {
-    toast(err.message, 'error');
-    btn.disabled = false;
-    btn.textContent = (kind === 'today') ? 'Done ✓' : 'Mark Done Now';
+    // Apps Script may have written the cell before the network dropped.
+    // Re-fetch the dashboard silently; if the task is gone it succeeded.
+    btn.textContent = 'Checking…';
+    try {
+      const apiParams = {};
+      if (isAdmin && viewAsEmail) apiParams.viewAs = viewAsEmail;
+      const freshData = await callApi('dashboard', apiParams);
+      doerTodayCache   = freshData.today;
+      doerRejectedCache = freshData.rejected;
+      doerOverdueCache  = freshData.overdue  || [];
+      doerAwaitingCache = freshData.awaiting || [];
+      const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
+      localCacheSet('dashboard_v2_' + effectiveEmail, freshData);
+      renderDoerView();
+      const taskGone = !doerTodayCache.some(x => String(x.id) === String(id)) &&
+                       !doerOverdueCache.some(x => String(x.id) === String(id)) &&
+                       !doerRejectedCache.some(x => String(x.id) === String(id));
+      toast(taskGone ? 'Task submitted successfully' : err.message,
+            taskGone ? 'success' : 'error');
+    } catch (_) {
+      // Re-fetch also failed — restore the button so the user can retry.
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = (kind === 'today') ? 'Done ✓' : 'Mark Done Now';
+    }
   }
 }
 
