@@ -297,11 +297,14 @@
 const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleusercontent.com";
 const API_URL = "https://script.google.com/macros/s/AKfycbwmL_WFZqZMNFl2-lOe0vWLWQHq50srOinFk3ZnO7eZ-Xti2gXfo8a4BhIMsbzeH0XdTA/exec";
 
-// Full view access to the Review Panel (all tabs, View As, performance).
+// Full view access to the Review Panel (To Review, Overdue, Rejected, View As).
 const ADMIN_EMAILS = ["pc@satijapaper.com", "mis@satijapaper.com"];
 // Only these can actually approve/reject/bulk-approve — mis@ deliberately
 // excluded: she can see everything but pc@ is the only one who approves.
 const APPROVER_EMAILS = ["pc@satijapaper.com"];
+// Performance tracking is MIS's job, not pc@'s — separate from approval
+// rights on purpose, so this list can diverge from APPROVER_EMAILS.
+const PERFORMANCE_VIEWER_EMAILS = ["mis@satijapaper.com"];
 const TOKEN_STORAGE_KEY = "doerAppIdToken";
 
 const FREQ_LABELS = {
@@ -314,6 +317,7 @@ let idToken = null;
 let userEmail = null;
 let isAdmin = false;
 let isApprover = false;
+let canSeePerformance = false;
 let viewAsEmail = null;  // when admin views another user's tasks; null = own tasks
 let doersList = [];      // [{email, name}] — populated from adminSummary response
 
@@ -395,6 +399,7 @@ function signInWithToken(token) {
   userEmail = payload.email;
   isAdmin = ADMIN_EMAILS.some(a => a.toLowerCase() === userEmail.toLowerCase());
   isApprover = APPROVER_EMAILS.some(a => a.toLowerCase() === userEmail.toLowerCase());
+  canSeePerformance = PERFORMANCE_VIEWER_EMAILS.some(a => a.toLowerCase() === userEmail.toLowerCase());
 
   document.getElementById('signedOut').style.display = 'none';
   document.getElementById('signedIn').style.display = 'block';
@@ -1048,6 +1053,11 @@ function renderAdminView() {
     if (ok) toast(refreshToastMessage(), 'success');
   };
 
+  // Performance tracking is MIS's job — pc@ never even sees the tab, so a
+  // stale adminTab='performance' (e.g. from an old cached session) must not
+  // leave her stuck on a view she has no way to navigate off of.
+  if (!canSeePerformance && adminTab === 'performance') adminTab = 'approvals';
+
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
       '<div class="stat-box ' + (adminTab === 'approvals' ? 'ok' : 'warn') + '" id="tabApprovals" style="cursor:pointer">' +
@@ -1056,17 +1066,21 @@ function renderAdminView() {
         '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
       '<div class="stat-box warn" id="tabRejected" style="cursor:pointer">' +
         '<div class="stat-num">' + adminRejectedCache.length + '</div><div class="stat-label">Rejected</div></div>' +
-      '<div class="stat-box ok" id="tabPerformance" style="cursor:pointer">' +
-        '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>' +
+      (canSeePerformance
+        ? '<div class="stat-box ok" id="tabPerformance" style="cursor:pointer">' +
+            '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>'
+        : '') +
     '</div>'
   );
   const resetAdminFilters = () => { adminFilter = 'All'; adminDeptFilter = 'All'; adminUserFilter = 'All'; };
   document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; resetAdminFilters(); renderAdminView(); };
   document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; resetAdminFilters(); renderAdminView(); };
   document.getElementById('tabRejected').onclick = () => { adminTab = 'rejected'; resetAdminFilters(); renderAdminView(); };
-  document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
+  if (canSeePerformance) {
+    document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
+  }
 
-  if (adminTab === 'performance') {
+  if (adminTab === 'performance' && canSeePerformance) {
     renderPerformanceView(app);
     return;
   }
