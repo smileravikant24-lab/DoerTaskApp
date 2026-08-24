@@ -870,6 +870,12 @@ function taskCard(t, kind) {
     return card;
   }
 
+  // "View As" is a read-only lens for an admin to check another doer's
+  // screen exactly as they see it — it must never let the viewer act on
+  // someone else's tasks. Only render the Done button on your own list.
+  const viewingSomeoneElse = isAdmin && viewAsEmail;
+  if (viewingSomeoneElse) return card;
+
   const actions = document.createElement('div');
   actions.className = 'actions';
   const btn = document.createElement('button');
