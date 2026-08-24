@@ -1212,9 +1212,9 @@ function rejectedTaskCard(t) {
   const card = document.createElement('div');
   card.className = 'card rejected';
   card.innerHTML =
-    '<div class="task-name">' + t.task + (t.freq ? '<span class="freq-tag">' + (FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Rejected</span></div>' +
-    '<div class="meta">' + t.department + '<span class="dot">•</span>Planned ' + t.planned + '</div>' +
-    (t.remark ? '<div class="meta" style="margin-top:6px; color:var(--amber);">Reason: ' + t.remark + '</div>' : '');
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Rejected</span></div>' +
+    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>' +
+    (t.remark ? '<div class="meta" style="margin-top:6px; color:var(--amber);">Reason: ' + escHtml(t.remark) + '</div>' : '');
   return card;
 }
 
@@ -1256,6 +1256,12 @@ async function decide(id, approve, btn) {
     if (!remark) { toast('Please enter a reason for declining', 'error'); btn.disabled = false; return; }
   }
 
+  // Capture the task's details before it's filtered out of the pending/overdue
+  // caches, so a successful reject can add it straight into the Rejected tab
+  // instead of that tab staying stale until the next full refresh.
+  const sourceEntry = adminPendingCache.find(t => String(t.id) === String(id)) ||
+                       adminOverdueCache.find(t => String(t.id) === String(id));
+
   let result = null, lastErr = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
@@ -1278,6 +1284,13 @@ async function decide(id, approve, btn) {
     setTimeout(() => {
       adminPendingCache = adminPendingCache.filter(t => String(t.id) !== String(id));
       adminOverdueCache = adminOverdueCache.filter(t => String(t.id) !== String(id));
+      if (!approve && sourceEntry) {
+        adminRejectedCache = adminRejectedCache.concat([{
+          id: sourceEntry.id, name: sourceEntry.name, email: sourceEntry.email,
+          department: sourceEntry.department, freq: sourceEntry.freq,
+          task: sourceEntry.task, planned: sourceEntry.planned, remark: remark
+        }]);
+      }
       localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
       renderAdminView();
     }, 180);
