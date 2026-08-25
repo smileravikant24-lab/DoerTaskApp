@@ -925,11 +925,13 @@ function taskCard(t, kind) {
     return card;
   }
 
-  // "View As" is a read-only lens for an admin to check another doer's
-  // screen exactly as they see it — it must never let the viewer act on
-  // someone else's tasks. Only render the Done button on your own list.
+  // "View As" is a read-only lens for a non-approver (mis@) — she can look
+  // but never act on someone else's tasks. pc@, the approver, CAN act here:
+  // tapping Done on someone else's task completes it immediately (she'd
+  // just approve it right after anyway), letting her close it out directly
+  // from their screen instead of waiting for them to submit it themselves.
   const viewingSomeoneElse = isAdmin && viewAsEmail;
-  if (viewingSomeoneElse) return card;
+  if (viewingSomeoneElse && !isApprover) return card;
 
   const actions = document.createElement('div');
   actions.className = 'actions';
@@ -998,6 +1000,7 @@ async function markDone(t, kind, btn) {
     return;
   }
   const card = btn.closest('.card');
+  const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
   btn.disabled = true;
   btn.textContent = 'Saving…';
 
@@ -1030,7 +1033,7 @@ async function markDone(t, kind, btn) {
         { id: id, task: t.task, department: t.department, freq: t.freq, planned: t.planned, actual: '', status: 'Submitted' }
       ]);
     }
-    localCacheSet('dashboard_v2_' + userEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache });
+    localCacheSet('dashboard_v2_' + effectiveEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache });
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
@@ -1048,7 +1051,6 @@ async function markDone(t, kind, btn) {
       doerRejectedCache = freshData.rejected;
       doerOverdueCache  = freshData.overdue  || [];
       doerAwaitingCache = freshData.awaiting || [];
-      const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
       localCacheSet('dashboard_v2_' + effectiveEmail, freshData);
       renderDoerView();
       const taskGone = !doerTodayCache.some(x => String(x.id) === String(id)) &&
