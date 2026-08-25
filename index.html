@@ -296,6 +296,11 @@
 // ============================================================
 const CLIENT_ID = "609136108830-jf0fovqkjd3l5bv4kal7kg7su2emkfi0.apps.googleusercontent.com";
 const API_URL = "https://script.google.com/macros/s/AKfycbwmL_WFZqZMNFl2-lOe0vWLWQHq50srOinFk3ZnO7eZ-Xti2gXfo8a4BhIMsbzeH0XdTA/exec";
+// A separate Apps Script project (the Hindi "दैनिक कार्य ट्रैकर" — day
+// checklist + expense tracker with file uploads). Its own deployment
+// identifies the caller via Session.getActiveUser() (the browser's Google
+// session), not this app's idToken — so calls to it never send idToken.
+const TASK_TRACKER_API_URL = "https://script.google.com/macros/s/AKfycbwN-zMYqEPGy4IdgXHMxcsIwndpKLzib7hGqRxIx_j4pdy-V7xAHn10RYq2aM2HOzZ3/exec";
 
 // Full view access to the Review Panel (To Review, Overdue, Rejected, View As).
 const ADMIN_EMAILS = ["pc@satijapaper.com", "mis@satijapaper.com"];
@@ -444,6 +449,30 @@ async function callApi(action, params = {}) {
   // genuinely dead request, not the expected path.
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 150000);
+  let res;
+  try {
+    res = await fetch(url.toString(), { signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Request timed out — please try again');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error);
+  return json.data;
+}
+
+// Same shape as callApi, but for the separate Task Tracker deployment —
+// no idToken (it identifies the caller via its own Google session) and a
+// different base URL.
+async function callTaskTrackerApi(action, params = {}) {
+  const url = new URL(TASK_TRACKER_API_URL);
+  url.searchParams.set('action', action);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
   let res;
   try {
     res = await fetch(url.toString(), { signal: controller.signal });
@@ -974,12 +1003,20 @@ async function markDone(t, kind, btn) {
 // ------------------------------------------------------------
 // ADMIN VIEW — grouped by user, with frequency filter + legend
 // ------------------------------------------------------------
-let adminTab = "approvals"; // 'approvals' | 'overdue' | 'rejected' | 'performance'
+let adminTab = "approvals"; // 'approvals' | 'overdue' | 'rejected' | 'performance' | 'tasktracker'
 let adminOverdueCache = [];
 let adminPerformanceCache = [];
 let adminRejectedCache = [];
 
 let adminViewHasData = false; // true once the panel has shown real (cached or live) data — guards against a failed refresh wiping a working screen
+
+// Task Tracker (the separate Hindi day-checklist app) pending submissions,
+// grouped by day: { dayName: [{ rowNumber, timestamp, amount, description,
+// tasks, links }] }. Fetched from TASK_TRACKER_API_URL, not this app's own
+// backend.
+let taskTrackerCache = {};
+let taskTrackerPendingCount = 0;
+let taskTrackerHasData = false;
 
 async function loadAdminView(force) {
   const cacheKey = 'admin_v2_' + userEmail;
@@ -1057,6 +1094,7 @@ function renderAdminView() {
   // stale adminTab='performance' (e.g. from an old cached session) must not
   // leave her stuck on a view she has no way to navigate off of.
   if (!canSeePerformance && adminTab === 'performance') adminTab = 'approvals';
+  if (!isApprover && adminTab === 'tasktracker') adminTab = 'approvals';
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
@@ -1070,6 +1108,10 @@ function renderAdminView() {
         ? '<div class="stat-box ok" id="tabPerformance" style="cursor:pointer">' +
             '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>'
         : '') +
+      (isApprover
+        ? '<div class="stat-box warn" id="tabTaskTracker" style="cursor:pointer">' +
+            '<div class="stat-num">' + taskTrackerPendingCount + '</div><div class="stat-label">Task Tracker</div></div>'
+        : '') +
     '</div>'
   );
   const resetAdminFilters = () => { adminFilter = 'All'; adminDeptFilter = 'All'; adminUserFilter = 'All'; };
@@ -1079,9 +1121,17 @@ function renderAdminView() {
   if (canSeePerformance) {
     document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
   }
+  if (isApprover) {
+    document.getElementById('tabTaskTracker').onclick = () => loadTaskTrackerApprovals();
+  }
 
   if (adminTab === 'performance' && canSeePerformance) {
     renderPerformanceView(app);
+    return;
+  }
+
+  if (adminTab === 'tasktracker' && isApprover) {
+    renderTaskTrackerView(app);
     return;
   }
 
@@ -1180,6 +1230,111 @@ function renderPerformanceView(app) {
       '<div class="meta" style="margin-top:9px;">✓ ' + u.onTime + ' on time <span class="dot">•</span> ⏱ ' + u.late + ' late <span class="dot">•</span> ✕ ' + u.missed + ' missed <span class="dot">•</span> ' + u.total + ' total</div>';
     app.appendChild(card);
   });
+}
+
+// ------------------------------------------------------------
+// TASK TRACKER APPROVAL — pulls pending submissions from the separate
+// Hindi day-checklist app (TASK_TRACKER_API_URL) and lets pc@ approve or
+// reject them without leaving this Review Panel.
+// ------------------------------------------------------------
+async function loadTaskTrackerApprovals() {
+  adminTab = 'tasktracker';
+  renderAdminView(); // paint the tab shell with whatever's cached immediately
+  try {
+    taskTrackerCache = await callTaskTrackerApi('getPendingSubmissions');
+    taskTrackerPendingCount = Object.values(taskTrackerCache).reduce((n, list) => n + list.length, 0);
+    taskTrackerHasData = true;
+  } catch (err) {
+    if (!taskTrackerHasData) taskTrackerCache = {};
+    toast('Task Tracker: ' + err.message, 'error');
+  }
+  renderAdminView();
+}
+
+function renderTaskTrackerView(app) {
+  app.insertAdjacentHTML('beforeend',
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+      '<div class="section-title" style="margin:0;">Task Tracker — pending submissions</div>' +
+      '<button class="legend-btn" id="taskTrackerRefreshBtn">⟳ Refresh</button>' +
+    '</div>'
+  );
+  document.getElementById('taskTrackerRefreshBtn').onclick = () => loadTaskTrackerApprovals();
+
+  const days = Object.keys(taskTrackerCache);
+  if (days.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">✅ All clear, nothing here.</div>');
+    return;
+  }
+
+  days.forEach(day => {
+    const items = taskTrackerCache[day];
+    app.insertAdjacentHTML('beforeend',
+      '<div class="date-subhead">' + escHtml(day) + ' <span class="date-count">(' + items.length + ')</span></div>');
+    items.forEach(item => app.appendChild(taskTrackerCard(item)));
+  });
+}
+
+function taskTrackerCard(item) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'tt-submission-' + item.rowNumber;
+
+  const linksHtml = (item.links && item.links.length > 0)
+    ? '<div class="meta" style="margin-top:6px;">' +
+        item.links.map(l => '<a href="' + escHtml(l) + '" target="_blank" rel="noopener" style="margin-right:10px;">📎 File</a>').join('') +
+      '</div>'
+    : '';
+
+  card.innerHTML =
+    '<div class="task-name">' + escHtml(item.tasks || '-') + '</div>' +
+    '<div class="meta">' + escHtml(item.timestamp) + '<span class="dot">•</span>₹' + escHtml(item.amount || 0) + '</div>' +
+    (item.description ? '<div class="meta" style="margin-top:6px;">' + escHtml(item.description) + '</div>' : '') +
+    linksHtml;
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const approveBtn = document.createElement('button');
+  approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
+  approveBtn.onclick = () => decideTaskTrackerSubmission(item.rowNumber, true, approveBtn, rejectBtn, card);
+  rejectBtn.onclick = () => decideTaskTrackerSubmission(item.rowNumber, false, rejectBtn, approveBtn, card);
+  actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
+  card.appendChild(actions);
+  return card;
+}
+
+async function decideTaskTrackerSubmission(rowNumber, approve, btn, otherBtn, card) {
+  let reason = '';
+  if (!approve) {
+    reason = (prompt('Reason for declining (required):') || '').trim();
+    if (!reason) return;
+  }
+
+  btn.disabled = true; otherBtn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = approve ? 'Approving…' : 'Declining…';
+
+  try {
+    if (approve) await callTaskTrackerApi('approveSubmission', { row: rowNumber });
+    else await callTaskTrackerApi('rejectSubmission', { row: rowNumber, reason });
+
+    toast(approve ? 'Submission approved' : 'Submission declined', 'success');
+    card.style.transition = 'opacity .2s ease';
+    card.style.opacity = '0';
+    setTimeout(() => {
+      Object.keys(taskTrackerCache).forEach(day => {
+        taskTrackerCache[day] = taskTrackerCache[day].filter(i => i.rowNumber !== rowNumber);
+        if (taskTrackerCache[day].length === 0) delete taskTrackerCache[day];
+      });
+      taskTrackerPendingCount = Object.values(taskTrackerCache).reduce((n, list) => n + list.length, 0);
+      renderAdminView();
+    }, 180);
+  } catch (err) {
+    toast('Task Tracker: ' + err.message, 'error');
+    btn.disabled = false; otherBtn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 function userGroupTile(group, mode) {
