@@ -899,10 +899,29 @@ function taskCard(t, kind) {
     '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>';
 
   if (kind === 'awaiting') {
-    // Already submitted — the doer has nothing left to do on it, so there's
-    // no button. It clears once the admin approves (which fills column H).
-    card.insertAdjacentHTML('beforeend',
-      '<div class="meta" style="margin-top:8px; color:var(--ink-light);">Sent for approval — no action needed from you</div>');
+    // pc@ looking at someone else's screen via View As is exactly where
+    // she'd notice a stuck/awaiting task — let her approve or decline right
+    // here instead of having to go find the same task in the Review Panel.
+    // Never shown on your own tasks (an approver's own submissions
+    // auto-approve, so this never applies) or for a non-approver's View As
+    // (mis@) — that stays strictly read-only.
+    if (isApprover && viewAsEmail) {
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      const approveBtn = document.createElement('button');
+      approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
+      const declineBtn = document.createElement('button');
+      declineBtn.className = 'btn-reject'; declineBtn.textContent = 'Decline';
+      approveBtn.onclick = () => decideFromDoerView(t.id, true, approveBtn, declineBtn, card);
+      declineBtn.onclick = () => decideFromDoerView(t.id, false, declineBtn, approveBtn, card);
+      actions.appendChild(approveBtn); actions.appendChild(declineBtn);
+      card.appendChild(actions);
+    } else {
+      // Already submitted — the doer has nothing left to do on it, so
+      // there's no button. It clears once pc@ approves (fills column H).
+      card.insertAdjacentHTML('beforeend',
+        '<div class="meta" style="margin-top:8px; color:var(--ink-light);">Sent for approval — no action needed from you</div>');
+    }
     return card;
   }
 
@@ -921,6 +940,49 @@ function taskCard(t, kind) {
   actions.appendChild(btn);
   card.appendChild(actions);
   return card;
+}
+
+// Approve/decline an "awaiting" task straight from a View As screen —
+// same backend actions as the Review Panel's decide(), just reached from a
+// different screen and updating doerAwaitingCache instead of the admin
+// caches.
+async function decideFromDoerView(id, approve, btn, otherBtn, card) {
+  if (!id) {
+    toast('This task list is out of date — refreshing…', 'error');
+    loadDoerView(true);
+    return;
+  }
+
+  let remark = '';
+  if (!approve) {
+    remark = (prompt('Reason for declining (required):') || '').trim();
+    if (!remark) return;
+  }
+
+  btn.disabled = true; otherBtn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = approve ? 'Approving…' : 'Declining…';
+
+  try {
+    if (approve) await callApi('approve', { id });
+    else await callApi('reject', { id, remark });
+
+    toast(approve ? 'Task approved' : 'Task declined — sent back to doer', 'success');
+    card.style.transition = 'opacity .2s ease';
+    card.style.opacity = '0';
+    setTimeout(() => {
+      doerAwaitingCache = doerAwaitingCache.filter(t => String(t.id) !== String(id));
+      const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
+      localCacheSet('dashboard_v2_' + effectiveEmail, {
+        today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache
+      });
+      renderDoerView();
+    }, 180);
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false; otherBtn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 async function markDone(t, kind, btn) {
