@@ -463,12 +463,14 @@ async function callApi(action, params = {}) {
   return json.data;
 }
 
-// Same shape as callApi, but for the separate Task Tracker deployment —
-// no idToken (it identifies the caller via its own Google session) and a
-// different base URL.
+// Same shape as callApi, but for the separate Task Tracker deployment. Its
+// form is public (submitters use personal Gmail accounts), so it can't
+// identify pc@ via its own session — it verifies THIS app's idToken
+// instead, so it's sent here just like callApi does for our own backend.
 async function callTaskTrackerApi(action, params = {}) {
   const url = new URL(TASK_TRACKER_API_URL);
   url.searchParams.set('action', action);
+  url.searchParams.set('idToken', idToken);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
   const controller = new AbortController();
