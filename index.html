@@ -1327,6 +1327,47 @@ function renderDiagnoseView(app) {
   }
   const d = diagnoseCache;
 
+  // --- Code version check ---
+  const expectedVersion = '2026-08-26-autoApprove-fix';
+  const versionOk = d.codeVersion === expectedVersion;
+  app.insertAdjacentHTML('beforeend',
+    '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
+      '<div class="task-name">Backend Version</div>' +
+      '<div class="meta">' + (versionOk
+        ? '✓ Correct Code.gs deployed (' + escHtml(d.codeVersion) + ')'
+        : '✕ WRONG CODE.GS — expected "' + escHtml(expectedVersion) + '", got "' + escHtml(d.codeVersion || 'none') + '". Deploy latest Code.gs and run setupSnapshotTrigger().') +
+      '</div>' +
+    '</div>'
+  );
+
+  // --- Snapshot health ---
+  if (d.snapshotHealth) {
+    const sh = d.snapshotHealth;
+    app.insertAdjacentHTML('beforeend', '<div class="section-title">Snapshot Health</div>');
+    if (!sh.available) {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--red);"><div class="task-name">No snapshot found</div>' +
+        '<div class="meta">Run setupSnapshotTrigger() in Apps Script editor</div></div>');
+    } else {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--green);">' +
+          '<div class="task-name">Snapshot available</div>' +
+          '<div class="meta">Built at: ' + escHtml(sh.builtAt) + ' &bull; ' + sh.doerCount + ' doer(s)</div>' +
+          '<div class="meta" style="margin-top:4px;">' +
+            '<b>' + sh.pendingCount + '</b> pending review &bull; ' +
+            '<b>' + sh.overdueCount + '</b> overdue &bull; ' +
+            '<b>' + sh.rejectedCount + '</b> rejected' +
+          '</div>' +
+          (sh.pendingSample && sh.pendingSample.length > 0
+            ? '<div class="meta" style="margin-top:6px;">Pending sample: ' +
+              sh.pendingSample.map(function(t) { return escHtml(t.task) + ' (' + escHtml(t.email) + ', ' + escHtml(t.freq) + ')'; }).join(' | ') +
+              '</div>'
+            : '') +
+        '</div>'
+      );
+    }
+  }
+
   app.insertAdjacentHTML('beforeend', '<div class="section-title">Column mapping — field → sheet header</div>');
   const fieldOrder = ['id', 'name', 'email', 'dept', 'freq', 'task', 'planned', 'actual', 'status', 'reason', 'remark'];
   fieldOrder.forEach(f => {
