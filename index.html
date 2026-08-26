@@ -1608,7 +1608,8 @@ function adminTaskCard(t) {
   // every card was noise. Approving is what stamps the date.
   card.innerHTML =
     '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '</div>' +
-    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>';
+    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) +
+    '<span class="dot">•</span><span style="opacity:.5">ID ' + escHtml(String(t.id)) + '</span></div>';
   if (isApprover) {
     const actions = document.createElement('div');
     actions.className = 'actions';
