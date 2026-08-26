@@ -1084,6 +1084,10 @@ let taskTrackerCache = {};
 let taskTrackerPendingCount = 0;
 let taskTrackerHasData = false;
 
+// Result of the last "diagnose" call — shows which Master sheet header
+// each field resolved to. null until loaded.
+let diagnoseCache = null;
+
 async function loadAdminView(force) {
   const cacheKey = 'admin_v2_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
@@ -1138,9 +1142,12 @@ function renderAdminView() {
   app.innerHTML = "";
 
   app.insertAdjacentHTML('beforeend',
-    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px; flex-wrap:wrap;">' +
       '<button class="legend-btn" id="myTasksBtn">My Tasks →</button>' +
-      '<button class="legend-btn" id="adminRefreshBtn">⟳ Refresh</button>' +
+      '<div style="display:flex; gap:14px;">' +
+        (isApprover ? '<button class="legend-btn" id="diagnoseBtn">🔍 Diagnose</button>' : '') +
+        '<button class="legend-btn" id="adminRefreshBtn">⟳ Refresh</button>' +
+      '</div>' +
     '</div>'
   );
   document.getElementById('myTasksBtn').onclick = () => {
@@ -1155,12 +1162,21 @@ function renderAdminView() {
     const ok = await loadAdminView(true);
     if (ok) toast(refreshToastMessage(), 'success');
   };
+  if (isApprover) {
+    document.getElementById('diagnoseBtn').onclick = () => loadDiagnose();
+  }
 
   // Performance tracking is MIS's job — pc@ never even sees the tab, so a
   // stale adminTab='performance' (e.g. from an old cached session) must not
   // leave her stuck on a view she has no way to navigate off of.
   if (!canSeePerformance && adminTab === 'performance') adminTab = 'approvals';
   if (!isApprover && adminTab === 'tasktracker') adminTab = 'approvals';
+  if (!isApprover && adminTab === 'diagnose') adminTab = 'approvals';
+
+  if (adminTab === 'diagnose' && isApprover) {
+    renderDiagnoseView(app);
+    return;
+  }
 
   app.insertAdjacentHTML('beforeend',
     '<div class="stat-row">' +
@@ -1275,6 +1291,81 @@ function renderAdminView() {
   [...groups.values()]
     .sort((a, b) => b.tasks.length - a.tasks.length)
     .forEach(g => app.appendChild(userGroupTile(g, adminTab)));
+}
+
+// ------------------------------------------------------------
+// DIAGNOSE — shows exactly which Master sheet header each field resolved
+// to, plus a few sample rows read through that mapping. Reads the sheet
+// directly (not the snapshot), so it always reflects the sheet as it is
+// right now, not a cached view.
+// ------------------------------------------------------------
+async function loadDiagnose() {
+  adminTab = 'diagnose';
+  renderAdminView();
+  try {
+    diagnoseCache = await callApi('diagnose');
+  } catch (err) {
+    diagnoseCache = null;
+    toast(err.message, 'error');
+  }
+  renderAdminView();
+}
+
+function renderDiagnoseView(app) {
+  app.insertAdjacentHTML('beforeend',
+    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+      '<button class="legend-btn" id="diagnoseBackBtn">← Back to Review Panel</button>' +
+      '<button class="legend-btn" id="diagnoseRefreshBtn">⟳ Refresh</button>' +
+    '</div>'
+  );
+  document.getElementById('diagnoseBackBtn').onclick = () => { adminTab = 'approvals'; renderAdminView(); };
+  document.getElementById('diagnoseRefreshBtn').onclick = () => loadDiagnose();
+
+  if (!diagnoseCache) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">Loading…</div>');
+    return;
+  }
+  const d = diagnoseCache;
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Column mapping — field → sheet header</div>');
+  const fieldOrder = ['id', 'name', 'email', 'dept', 'freq', 'task', 'planned', 'actual', 'status', 'reason', 'remark'];
+  fieldOrder.forEach(f => {
+    const header = d.resolved[f];
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.borderLeftColor = header ? 'var(--green)' : 'var(--red)';
+    card.innerHTML =
+      '<div class="task-name">' + escHtml(f) + '</div>' +
+      '<div class="meta">' + (header ? '✓ matched to "' + escHtml(header) + '"' : '✕ NOT FOUND') + '</div>';
+    app.appendChild(card);
+  });
+
+  if (d.missingRequired && d.missingRequired.length > 0) {
+    app.insertAdjacentHTML('beforeend',
+      '<div class="empty" style="background:#FBECE8; border-radius:10px; padding:10px 14px; margin:14px 0; color:var(--red);">' +
+        '⚠ Missing required: ' + d.missingRequired.map(escHtml).join(', ') +
+      '</div>');
+  }
+
+  app.insertAdjacentHTML('beforeend',
+    '<div class="section-title">Sheet has ' + d.totalRows + ' data row(s). All headers found:</div>' +
+    '<div class="meta" style="margin-bottom:14px;">' + d.sheetHeaders.filter(Boolean).map(escHtml).join(' | ') + '</div>'
+  );
+
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">First few rows, read through the mapping above</div>');
+  if (!d.sampleRows || d.sampleRows.length === 0) {
+    app.insertAdjacentHTML('beforeend', '<div class="empty">No data rows found.</div>');
+    return;
+  }
+  d.sampleRows.forEach(row => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="task-name">' + escHtml(row.task || '—') + '</div>' +
+      '<div class="meta">id: ' + escHtml(row.id) + ' • ' + escHtml(row.name) + ' • ' + escHtml(row.email) + ' • ' + escHtml(row.department) + ' • ' + escHtml(row.freq) + '</div>' +
+      '<div class="meta">Planned: ' + escHtml(row.planned) + ' • Actual: ' + (row.actual ? escHtml(row.actual) : '(blank)') + ' • Status: ' + (row.status ? escHtml(row.status) : '(blank)') + '</div>';
+    app.appendChild(card);
+  });
 }
 
 function renderPerformanceView(app) {
