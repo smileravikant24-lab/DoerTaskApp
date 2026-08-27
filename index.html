@@ -314,8 +314,9 @@ const TOKEN_STORAGE_KEY = "doerAppIdToken";
 
 const FREQ_LABELS = {
   D: "Daily", W: "Weekly", F: "Fortnightly", M: "Monthly", Q: "Quarterly", Y: "Yearly",
-  E1st: "1st weekday/mo", E2nd: "2nd weekday/mo", E3rd: "3rd weekday/mo",
-  E4th: "4th weekday/mo", ELast: "Last weekday/mo"
+  E1: "1st weekday/mo", E2: "2nd weekday/mo",
+  E1ST: "1st weekday/mo", E2ND: "2nd weekday/mo", E3RD: "3rd weekday/mo",
+  E4TH: "4th weekday/mo", ELAST: "Last weekday/mo"
 };
 
 let idToken = null;
@@ -1328,17 +1329,57 @@ function renderDiagnoseView(app) {
   const d = diagnoseCache;
 
   // --- Code version check ---
-  const expectedVersion = '2026-08-26-autoApprove-fix';
+  const expectedVersion = '2026-08-27-virtual-engine';
   const versionOk = d.codeVersion === expectedVersion;
   app.insertAdjacentHTML('beforeend',
     '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
       '<div class="task-name">Backend Version</div>' +
       '<div class="meta">' + (versionOk
-        ? '✓ Correct Code.gs deployed (' + escHtml(d.codeVersion) + ')'
-        : '✕ WRONG CODE.GS — expected "' + escHtml(expectedVersion) + '", got "' + escHtml(d.codeVersion || 'none') + '". Deploy latest Code.gs and run setupSnapshotTrigger().') +
+        ? '✓ Virtual Task Engine deployed (' + escHtml(d.codeVersion) + ')'
+        : '✕ WRONG CODE.GS — expected "' + escHtml(expectedVersion) + '", got "' + escHtml(d.codeVersion || 'none') + '". Deploy latest Code.gs, run setupVirtualMaster() then setupSnapshotTrigger().') +
       '</div>' +
     '</div>'
   );
+
+  // --- Task List sheet info (virtual engine source) ---
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Task List Sheet</div>');
+  if (d.taskListInfo) {
+    const tl = d.taskListInfo;
+    if (!tl.available) {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--red);"><div class="task-name">Task List not readable</div>' +
+        '<div class="meta">' + escHtml(tl.error || 'Sheet not found') + '</div></div>');
+    } else {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--green);">' +
+          '<div class="task-name">Task List OK — ' + tl.taskCount + ' task definition(s)</div>' +
+          '<div class="meta">Tasks are computed from this sheet dynamically each rebuild.</div>' +
+        '</div>');
+    }
+  }
+
+  // --- Master sheet info ---
+  app.insertAdjacentHTML('beforeend', '<div class="section-title">Master Sheet (completion records)</div>');
+  if (d.masterInfo) {
+    const mi = d.masterInfo;
+    if (!mi.available) {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--red);"><div class="task-name">Master not readable</div>' +
+        '<div class="meta">' + escHtml(mi.error || 'Sheet not found') + '</div></div>');
+    } else if (!mi.isNewFormat) {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--red);">' +
+          '<div class="task-name">Master is OLD format (first header: "' + escHtml(mi.firstHeader) + '")</div>' +
+          '<div class="meta">Run setupVirtualMaster() in Apps Script editor to migrate. Old Master will be renamed, new one created.</div>' +
+        '</div>');
+    } else {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--green);">' +
+          '<div class="task-name">Master is Virtual Engine format — ' + mi.recordCount + ' completion record(s)</div>' +
+          '<div class="meta">Only stores actual completions (Submitted/Approved/Rejected). Never pre-generated.</div>' +
+        '</div>');
+    }
+  }
 
   // --- Snapshot health ---
   if (d.snapshotHealth) {
@@ -1352,7 +1393,7 @@ function renderDiagnoseView(app) {
       app.insertAdjacentHTML('beforeend',
         '<div class="card" style="border-left-color:var(--green);">' +
           '<div class="task-name">Snapshot available</div>' +
-          '<div class="meta">Built at: ' + escHtml(sh.builtAt) + ' &bull; ' + sh.doerCount + ' doer(s)</div>' +
+          '<div class="meta">Built at: ' + escHtml(String(sh.builtAt)) + ' &bull; ' + sh.doerCount + ' doer(s)</div>' +
           '<div class="meta" style="margin-top:4px;">' +
             '<b>' + sh.pendingCount + '</b> pending review &bull; ' +
             '<b>' + sh.overdueCount + '</b> overdue &bull; ' +
@@ -1360,53 +1401,13 @@ function renderDiagnoseView(app) {
           '</div>' +
           (sh.pendingSample && sh.pendingSample.length > 0
             ? '<div class="meta" style="margin-top:6px;">Pending sample: ' +
-              sh.pendingSample.map(function(t) { return escHtml(t.task) + ' (' + escHtml(t.email) + ', ' + escHtml(t.freq) + ')'; }).join(' | ') +
+              sh.pendingSample.map(function(t) { return escHtml(String(t.task)) + ' (' + escHtml(String(t.email)) + ')'; }).join(' | ') +
               '</div>'
             : '') +
         '</div>'
       );
     }
   }
-
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">Column mapping — field → sheet header</div>');
-  const fieldOrder = ['id', 'name', 'email', 'dept', 'freq', 'task', 'planned', 'actual', 'status', 'reason', 'remark'];
-  fieldOrder.forEach(f => {
-    const header = d.resolved[f];
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.style.borderLeftColor = header ? 'var(--green)' : 'var(--red)';
-    card.innerHTML =
-      '<div class="task-name">' + escHtml(f) + '</div>' +
-      '<div class="meta">' + (header ? '✓ matched to "' + escHtml(header) + '"' : '✕ NOT FOUND') + '</div>';
-    app.appendChild(card);
-  });
-
-  if (d.missingRequired && d.missingRequired.length > 0) {
-    app.insertAdjacentHTML('beforeend',
-      '<div class="empty" style="background:#FBECE8; border-radius:10px; padding:10px 14px; margin:14px 0; color:var(--red);">' +
-        '⚠ Missing required: ' + d.missingRequired.map(escHtml).join(', ') +
-      '</div>');
-  }
-
-  app.insertAdjacentHTML('beforeend',
-    '<div class="section-title">Sheet has ' + d.totalRows + ' data row(s). All headers found:</div>' +
-    '<div class="meta" style="margin-bottom:14px;">' + d.sheetHeaders.filter(Boolean).map(escHtml).join(' | ') + '</div>'
-  );
-
-  app.insertAdjacentHTML('beforeend', '<div class="section-title">First few rows, read through the mapping above</div>');
-  if (!d.sampleRows || d.sampleRows.length === 0) {
-    app.insertAdjacentHTML('beforeend', '<div class="empty">No data rows found.</div>');
-    return;
-  }
-  d.sampleRows.forEach(row => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML =
-      '<div class="task-name">' + escHtml(row.task || '—') + '</div>' +
-      '<div class="meta">id: ' + escHtml(row.id) + ' • ' + escHtml(row.name) + ' • ' + escHtml(row.email) + ' • ' + escHtml(row.department) + ' • ' + escHtml(row.freq) + '</div>' +
-      '<div class="meta">Planned: ' + escHtml(row.planned) + ' • Actual: ' + (row.actual ? escHtml(row.actual) : '(blank)') + ' • Status: ' + (row.status ? escHtml(row.status) : '(blank)') + '</div>';
-    app.appendChild(card);
-  });
 }
 
 function renderPerformanceView(app) {
