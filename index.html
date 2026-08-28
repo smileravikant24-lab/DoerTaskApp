@@ -188,6 +188,15 @@
   .card .meta { font-size: 12px; color: var(--muted); margin-top: 5px; }
   .card .meta .dot { margin: 0 5px; opacity: .6; }
   .card .actions { margin-top: 12px; display: flex; gap: 8px; }
+  /* One task inside a Task Tracker submission — each approved on its own */
+  .tt-task-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 0; border-top: 1px solid var(--line, #E7ECF4);
+  }
+  .tt-task-row:first-child { border-top: none; }
+  .tt-task-row .task-name { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+  .tt-task-row .actions { margin-top: 0; flex: 0 0 auto; }
+  .tt-task-row .actions button { padding: 5px 12px; font-size: 12px; }
   .freq-tag {
     display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 7px;
     border-radius: 5px; background: #E7ECF4; color: var(--ink-light); margin-left: 7px;
@@ -1486,6 +1495,36 @@ function renderTaskTrackerView(app) {
   });
 }
 
+// One submission can list several tasks. Normalises whatever the backend sends
+// into [{ index, name, status }] so each task can be approved on its own:
+//   • taskList: [{ name, status }]  — preferred, carries per-task status
+//   • tasks: ["a", "b"]             — plain array
+//   • tasks: "a\nb"  /  "a, b"      — one cell holding several tasks
+function parseTrackerTasks(item) {
+  const norm = (t, i) => {
+    if (t && typeof t === 'object') {
+      return { index: i, name: String(t.name || t.task || '').trim(), status: String(t.status || '').trim() };
+    }
+    return { index: i, name: String(t || '').trim(), status: '' };
+  };
+
+  if (Array.isArray(item.taskList)) return item.taskList.map(norm).filter(t => t.name);
+  if (Array.isArray(item.tasks))    return item.tasks.map(norm).filter(t => t.name);
+
+  const raw = String(item.tasks || '').trim();
+  if (!raw) return [];
+
+  // Newlines are the reliable separator; fall back to , ; | for single-line cells
+  let parts = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (parts.length === 1) parts = raw.split(/\s*[,;|]\s*/).map(s => s.trim()).filter(Boolean);
+
+  // Drop list markers the submitter may have typed ("1. ", "- ", "• ")
+  return parts
+    .map(s => s.replace(/^\s*(?:[-–—•*]|\d+[.)])\s+/, '').trim() || s)
+    .filter(Boolean)
+    .map((name, i) => ({ index: i, name: name, status: '' }));
+}
+
 function taskTrackerCard(item) {
   const card = document.createElement('div');
   card.className = 'card';
@@ -1497,12 +1536,168 @@ function taskTrackerCard(item) {
       '</div>'
     : '';
 
+  const tasks = parseTrackerTasks(item);
+
   card.innerHTML =
-    '<div class="task-name">' + escHtml(item.tasks || '-') + '</div>' +
-    '<div class="meta">' + escHtml(item.timestamp) + '<span class="dot">•</span>₹' + escHtml(item.amount || 0) + '</div>' +
+    '<div class="meta">' + escHtml(item.timestamp) + '<span class="dot">•</span>₹' + escHtml(item.amount || 0) +
+      '<span class="dot">•</span>' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + '</div>' +
     (item.description ? '<div class="meta" style="margin-top:6px;">' + escHtml(item.description) + '</div>' : '') +
     linksHtml;
 
+  // Nothing parseable — fall back to deciding the whole submission at once
+  if (tasks.length === 0) {
+    card.insertAdjacentHTML('afterbegin', '<div class="task-name">' + escHtml(item.tasks || '-') + '</div>');
+    card.appendChild(wholeSubmissionActions(item, card));
+    return card;
+  }
+
+  // Track how many tasks still need a decision — the card clears once all are done
+  card._pendingTasks = tasks.length;
+
+  const list = document.createElement('div');
+  list.style.marginTop = '10px';
+  tasks.forEach(task => list.appendChild(trackerTaskRow(item, task, card)));
+  card.appendChild(list);
+
+  // Convenience: approve everything still undecided on this submission
+  if (tasks.length > 1) {
+    const bulk = document.createElement('div');
+    bulk.className = 'actions';
+    bulk.style.marginTop = '10px';
+    const allBtn = document.createElement('button');
+    allBtn.className = 'btn-approve';
+    allBtn.textContent = '✓ Approve all ' + tasks.length;
+    allBtn.onclick = () => approveAllTrackerTasks(item, card, allBtn);
+    bulk.appendChild(allBtn);
+    card.appendChild(bulk);
+  }
+
+  return card;
+}
+
+// One row per task, with its own Approve / Decline.
+function trackerTaskRow(item, task, card) {
+  const row = document.createElement('div');
+  row.className = 'tt-task-row';
+  row.dataset.taskIndex = String(task.index);
+
+  const label = document.createElement('div');
+  label.className = 'task-name';
+  label.style.margin = '0';
+  label.textContent = task.name;
+  row.appendChild(label);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+
+  const approveBtn = document.createElement('button');
+  approveBtn.className = 'btn-approve'; approveBtn.textContent = 'Approve';
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'btn-reject'; rejectBtn.textContent = 'Decline';
+
+  approveBtn.onclick = () => decideTrackerTask(item, task, true,  approveBtn, rejectBtn, row, card);
+  rejectBtn.onclick  = () => decideTrackerTask(item, task, false, rejectBtn, approveBtn, row, card);
+
+  actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
+  row.appendChild(actions);
+
+  // A task the backend already decided shows its outcome instead of buttons
+  const decided = (task.status || '').toLowerCase();
+  if (decided === 'approved' || decided === 'rejected') {
+    markTrackerTaskDecided(row, decided === 'approved');
+    if (card._pendingTasks) card._pendingTasks--;
+  }
+  return row;
+}
+
+function markTrackerTaskDecided(row, approved) {
+  const actions = row.querySelector('.actions');
+  if (actions) actions.remove();
+  row.insertAdjacentHTML('beforeend',
+    '<span class="badge" style="background:' + (approved ? 'var(--green, #2e7d52)' : 'var(--amber, #b06d12)') + '">' +
+      (approved ? 'Approved' : 'Declined') + '</span>');
+  row.style.opacity = '.65';
+}
+
+async function decideTrackerTask(item, task, approve, btn, otherBtn, row, card) {
+  let reason = '';
+  if (!approve) {
+    reason = (prompt('Reason for declining "' + task.name + '" (required):') || '').trim();
+    if (!reason) return;
+  }
+
+  btn.disabled = true; otherBtn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = approve ? 'Approving…' : 'Declining…';
+
+  try {
+    await callTaskTrackerApi(approve ? 'approveSubmissionTask' : 'rejectSubmissionTask', {
+      row: item.rowNumber,
+      taskIndex: task.index,
+      task: task.name,
+      reason: reason
+    });
+
+    markTrackerTaskDecided(row, approve);
+    toast((approve ? 'Approved: ' : 'Declined: ') + task.name, 'success');
+
+    card._pendingTasks = Math.max(0, (card._pendingTasks || 1) - 1);
+    if (card._pendingTasks === 0) removeTrackerSubmission(item.rowNumber, card);
+  } catch (err) {
+    toast('Task Tracker: ' + err.message, 'error');
+    btn.disabled = false; otherBtn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+// Approves every task on the card that hasn't been decided yet, one call each,
+// so a partial failure still leaves the rest correctly recorded.
+async function approveAllTrackerTasks(item, card, allBtn) {
+  const rows = [...card.querySelectorAll('.tt-task-row')]
+    .filter(r => r.querySelector('.btn-approve'));
+  if (rows.length === 0) return;
+
+  allBtn.disabled = true;
+  const originalText = allBtn.textContent;
+  let ok = 0, failed = 0;
+
+  for (const row of rows) {
+    const idx = Number(row.dataset.taskIndex);
+    const name = row.querySelector('.task-name').textContent;
+    allBtn.textContent = 'Approving ' + (ok + failed + 1) + '/' + rows.length + '…';
+    try {
+      await callTaskTrackerApi('approveSubmissionTask', { row: item.rowNumber, taskIndex: idx, task: name, reason: '' });
+      markTrackerTaskDecided(row, true);
+      ok++;
+    } catch (err) {
+      failed++;
+    }
+  }
+
+  card._pendingTasks = Math.max(0, (card._pendingTasks || 0) - ok);
+  toast(failed > 0
+    ? 'Approved ' + ok + ', ' + failed + ' failed — tap again to retry those'
+    : 'Approved all ' + ok + ' task(s)', failed > 0 ? 'error' : 'success');
+
+  if (card._pendingTasks === 0) removeTrackerSubmission(item.rowNumber, card);
+  else { allBtn.disabled = false; allBtn.textContent = originalText; }
+}
+
+function removeTrackerSubmission(rowNumber, card) {
+  card.style.transition = 'opacity .2s ease';
+  card.style.opacity = '0';
+  setTimeout(() => {
+    Object.keys(taskTrackerCache).forEach(day => {
+      taskTrackerCache[day] = taskTrackerCache[day].filter(i => i.rowNumber !== rowNumber);
+      if (taskTrackerCache[day].length === 0) delete taskTrackerCache[day];
+    });
+    taskTrackerPendingCount = Object.values(taskTrackerCache).reduce((n, list) => n + list.length, 0);
+    renderAdminView();
+  }, 180);
+}
+
+// Used only when a submission has no parseable task list — decides the row as a whole.
+function wholeSubmissionActions(item, card) {
   const actions = document.createElement('div');
   actions.className = 'actions';
   const approveBtn = document.createElement('button');
@@ -1512,8 +1707,7 @@ function taskTrackerCard(item) {
   approveBtn.onclick = () => decideTaskTrackerSubmission(item.rowNumber, true, approveBtn, rejectBtn, card);
   rejectBtn.onclick = () => decideTaskTrackerSubmission(item.rowNumber, false, rejectBtn, approveBtn, card);
   actions.appendChild(approveBtn); actions.appendChild(rejectBtn);
-  card.appendChild(actions);
-  return card;
+  return actions;
 }
 
 async function decideTaskTrackerSubmission(rowNumber, approve, btn, otherBtn, card) {
