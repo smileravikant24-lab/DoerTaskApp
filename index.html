@@ -1351,7 +1351,7 @@ function renderDiagnoseView(app) {
   const d = diagnoseCache;
 
   // --- Code version check ---
-  const expectedVersion = '2026-08-29-rollback-datefix';
+  const expectedVersion = '2026-08-29-dedupe';
   const versionOk = d.codeVersion === expectedVersion;
   app.insertAdjacentHTML('beforeend',
     '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
@@ -1400,6 +1400,20 @@ function renderDiagnoseView(app) {
           '<div class="task-name">Master is Virtual Engine format — ' + mi.recordCount + ' completion record(s)</div>' +
           '<div class="meta">Only stores actual completions (Submitted/Approved/Rejected). Never pre-generated.</div>' +
         '</div>');
+
+      // Duplicate IDs are why an approved task can come back as pending —
+      // the write lands on one row while the snapshot reads the other.
+      if (mi.duplicateIDs > 0) {
+        app.insertAdjacentHTML('beforeend',
+          '<div class="card" style="border-left-color:var(--red);">' +
+            '<div class="task-name">⚠ ' + mi.duplicateIDs + ' duplicate row(s) — approved tasks can reappear</div>' +
+            '<div class="meta">Run dedupeMaster() in the Apps Script editor to collapse them, then setupSnapshotTrigger().</div>' +
+            ((mi.duplicateSample && mi.duplicateSample.length)
+              ? '<div class="meta" style="margin-top:6px; opacity:.75;">e.g. ' +
+                  mi.duplicateSample.map(escHtml).join(', ') + '</div>'
+              : '') +
+          '</div>');
+      }
     }
   }
 
