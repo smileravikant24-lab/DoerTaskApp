@@ -1644,10 +1644,21 @@ async function decideTrackerTask(item, task, approve, btn, otherBtn, row, card) 
     card._pendingTasks = Math.max(0, (card._pendingTasks || 1) - 1);
     if (card._pendingTasks === 0) removeTrackerSubmission(item.rowNumber, card);
   } catch (err) {
-    toast('Task Tracker: ' + err.message, 'error');
+    toast(trackerErrorMessage(err), 'error');
     btn.disabled = false; otherBtn.disabled = false;
     btn.textContent = originalText;
   }
+}
+
+// Per-task approval needs the updated Task Tracker Code.gs. If that project
+// still runs the old version it answers "Unknown action" — say so plainly
+// rather than showing a bare backend string.
+function trackerErrorMessage(err) {
+  const msg = String((err && err.message) || err || '');
+  if (/unknown action/i.test(msg)) {
+    return 'Task Tracker backend purana hai — naya Code.gs deploy karke setupTaskStatusColumn() chalayein.';
+  }
+  return 'Task Tracker: ' + msg;
 }
 
 // Approves every task on the card that hasn't been decided yet, one call each,
@@ -1737,7 +1748,7 @@ async function decideTaskTrackerSubmission(rowNumber, approve, btn, otherBtn, ca
       renderAdminView();
     }, 180);
   } catch (err) {
-    toast('Task Tracker: ' + err.message, 'error');
+    toast(trackerErrorMessage(err), 'error');
     btn.disabled = false; otherBtn.disabled = false;
     btn.textContent = originalText;
   }
