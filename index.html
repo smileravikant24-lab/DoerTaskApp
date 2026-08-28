@@ -1070,10 +1070,11 @@ async function markDone(t, kind, btn) {
 // ------------------------------------------------------------
 // ADMIN VIEW — grouped by user, with frequency filter + legend
 // ------------------------------------------------------------
-let adminTab = "approvals"; // 'approvals' | 'overdue' | 'rejected' | 'performance' | 'tasktracker'
+let adminTab = "approvals"; // 'approvals' | 'overdue' | 'rejected' | 'done' | 'performance' | 'tasktracker'
 let adminOverdueCache = [];
 let adminPerformanceCache = [];
 let adminRejectedCache = [];
+let adminDoneCache = []; // recently completed — admins can roll these back
 
 let adminViewHasData = false; // true once the panel has shown real (cached or live) data — guards against a failed refresh wiping a working screen
 
@@ -1097,6 +1098,7 @@ async function loadAdminView(force) {
     adminOverdueCache = cached.overdue;
     adminPerformanceCache = cached.performance || [];
     adminRejectedCache = cached.rejected || [];
+    adminDoneCache = cached.done || [];
     adminFilter = "All"; adminDeptFilter = "All"; adminUserFilter = "All";
     renderAdminView(); // instant paint from last-known data
     adminViewHasData = true;
@@ -1112,10 +1114,11 @@ async function loadAdminView(force) {
     adminOverdueCache = data.overdue;
     adminPerformanceCache = data.performance || [];
     adminRejectedCache = data.rejected || [];
+    adminDoneCache = data.done || [];
     if (data.doers) doersList = data.doers;
     lastBuiltAt = data.builtAt || null;
     lastRefreshQueued = !!data.refreshing;
-    localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+    localCacheSet(cacheKey, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache, done: adminDoneCache });
   adminFilter = "All"; adminDeptFilter = "All"; adminUserFilter = "All";
     renderAdminView(); // refresh with live data
     adminViewHasData = true;
@@ -1187,6 +1190,8 @@ function renderAdminView() {
         '<div class="stat-num">' + adminOverdueCache.length + '</div><div class="stat-label">Overdue (not done)</div></div>' +
       '<div class="stat-box warn" id="tabRejected" style="cursor:pointer">' +
         '<div class="stat-num">' + adminRejectedCache.length + '</div><div class="stat-label">Rejected</div></div>' +
+      '<div class="stat-box ok" id="tabDone" style="cursor:pointer">' +
+        '<div class="stat-num">' + adminDoneCache.length + '</div><div class="stat-label">Done (undo)</div></div>' +
       (canSeePerformance
         ? '<div class="stat-box ok" id="tabPerformance" style="cursor:pointer">' +
             '<div class="stat-num">' + adminPerformanceCache.length + '</div><div class="stat-label">Performance</div></div>'
@@ -1201,6 +1206,7 @@ function renderAdminView() {
   document.getElementById('tabApprovals').onclick = () => { adminTab = 'approvals'; resetAdminFilters(); renderAdminView(); };
   document.getElementById('tabOverdue').onclick = () => { adminTab = 'overdue'; resetAdminFilters(); renderAdminView(); };
   document.getElementById('tabRejected').onclick = () => { adminTab = 'rejected'; resetAdminFilters(); renderAdminView(); };
+  document.getElementById('tabDone').onclick = () => { adminTab = 'done'; resetAdminFilters(); renderAdminView(); };
   if (canSeePerformance) {
     document.getElementById('tabPerformance').onclick = () => { adminTab = 'performance'; renderAdminView(); };
   }
@@ -1218,7 +1224,13 @@ function renderAdminView() {
     return;
   }
 
-  const source = adminTab === 'approvals' ? adminPendingCache : (adminTab === 'overdue' ? adminOverdueCache : adminRejectedCache);
+  const sourceByTab = {
+    approvals: adminPendingCache,
+    overdue:   adminOverdueCache,
+    rejected:  adminRejectedCache,
+    done:      adminDoneCache
+  };
+  const source = sourceByTab[adminTab] || adminPendingCache;
   renderAdminFilters(app, source);
 
   const filtered = applyAdminFilters(source);
@@ -1226,7 +1238,8 @@ function renderAdminView() {
   const sectionTitles = {
     approvals: 'To Review',
     overdue: '⏰ Overdue — not yet done by anyone',
-    rejected: '⚠ Rejected — sent back for redo'
+    rejected: '⚠ Rejected — sent back for redo',
+    done: '✅ Recently done — undo if marked by mistake'
   };
 
   // Daily tasks marked done before the auto-approve backend fix went live
@@ -1329,7 +1342,7 @@ function renderDiagnoseView(app) {
   const d = diagnoseCache;
 
   // --- Code version check ---
-  const expectedVersion = '2026-08-29-carry-pending-v2';
+  const expectedVersion = '2026-08-29-rollback';
   const versionOk = d.codeVersion === expectedVersion;
   app.insertAdjacentHTML('beforeend',
     '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
@@ -1554,6 +1567,8 @@ function userGroupTile(group, mode) {
     renderGroupedByDate(body, group.tasks, (t) => overdueTaskCard(t));
   } else if (mode === 'rejected') {
     group.tasks.forEach(t => body.appendChild(rejectedTaskCard(t)));
+  } else if (mode === 'done') {
+    group.tasks.forEach(t => body.appendChild(doneTaskCard(t)));
   } else {
     group.tasks.forEach(t => body.appendChild(adminTaskCard(t)));
   }
@@ -1589,6 +1604,61 @@ function overdueTaskCard(t) {
       '<div class="meta" style="margin-top:8px; color:var(--ink-light);">Waiting for pc@satijapaper.com to approve</div>');
   }
   return card;
+}
+
+// A completed task, with an Undo button. Rolling back deletes the completion
+// record, so the task goes straight back to being due for the doer — use it
+// when something was ticked off (and approved) by mistake.
+function doneTaskCard(t) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="task-name">' + escHtml(t.task) +
+      (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') +
+      '<span class="badge" style="background:var(--green, #2e7d52)">' + escHtml(t.status || 'Done') + '</span></div>' +
+    '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) +
+      (t.actual ? '<span class="dot">•</span>Done ' + escHtml(t.actual) : '') + '</div>';
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const undoBtn = document.createElement('button');
+  undoBtn.className = 'btn-reject';
+  undoBtn.textContent = '↺ Undo (mark as not done)';
+  undoBtn.onclick = () => rollbackTask(t, undoBtn, card);
+  actions.appendChild(undoBtn);
+  card.appendChild(actions);
+  return card;
+}
+
+async function rollbackTask(t, btn, card) {
+  const ok = confirm(
+    'Undo this completion?\n\n' +
+    t.task + '\n' + (t.name || t.email) + '\nPlanned: ' + t.planned + '\n\n' +
+    'The task goes back to pending and the doer will have to do it again.'
+  );
+  if (!ok) return;
+
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Undoing…';
+
+  try {
+    await callApi('rollback', { id: t.id });
+    toast('Rolled back — task is pending again', 'success');
+    adminDoneCache = adminDoneCache.filter(x => String(x.id) !== String(t.id));
+    localCacheSet('admin_v2_' + userEmail, {
+      pending: adminPendingCache, overdue: adminOverdueCache,
+      performance: adminPerformanceCache, rejected: adminRejectedCache,
+      done: adminDoneCache
+    });
+    card.style.transition = 'opacity .2s ease';
+    card.style.opacity = '0';
+    setTimeout(() => renderAdminView(), 180);
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 function rejectedTaskCard(t) {
