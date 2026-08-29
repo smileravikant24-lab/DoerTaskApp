@@ -683,7 +683,7 @@ function refreshToastMessage() {
 
 async function loadDoerView(force) {
   const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
-  const cacheKey = 'dashboard_v2_' + effectiveEmail;
+  const cacheKey = 'dashboard_v3_' + effectiveEmail;
   const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     doerTodayCache = cached.today;
@@ -985,7 +985,7 @@ async function decideFromDoerView(id, approve, btn, otherBtn, card) {
     setTimeout(() => {
       doerAwaitingCache = doerAwaitingCache.filter(t => String(t.id) !== String(id));
       const effectiveEmail = (isAdmin && viewAsEmail) ? viewAsEmail : userEmail;
-      localCacheSet('dashboard_v2_' + effectiveEmail, {
+      localCacheSet('dashboard_v3_' + effectiveEmail, {
         today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache
       });
       renderDoerView();
@@ -1043,7 +1043,7 @@ async function markDone(t, kind, btn) {
         { id: id, task: t.task, department: t.department, freq: t.freq, planned: t.planned, actual: '', status: 'Submitted' }
       ]);
     }
-    localCacheSet('dashboard_v2_' + effectiveEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache });
+    localCacheSet('dashboard_v3_' + effectiveEmail, { today: doerTodayCache, rejected: doerRejectedCache, overdue: doerOverdueCache, awaiting: doerAwaitingCache });
     card.style.transition = 'opacity .2s ease';
     card.style.opacity = '0';
     setTimeout(() => renderDoerView(), 180);
@@ -1061,7 +1061,7 @@ async function markDone(t, kind, btn) {
       doerRejectedCache = freshData.rejected;
       doerOverdueCache  = freshData.overdue  || [];
       doerAwaitingCache = freshData.awaiting || [];
-      localCacheSet('dashboard_v2_' + effectiveEmail, freshData);
+      localCacheSet('dashboard_v3_' + effectiveEmail, freshData);
       renderDoerView();
       const taskGone = !doerTodayCache.some(x => String(x.id) === String(id)) &&
                        !doerOverdueCache.some(x => String(x.id) === String(id)) &&
@@ -1100,7 +1100,7 @@ let taskTrackerHasData = false;
 let diagnoseCache = null;
 
 async function loadAdminView(force) {
-  const cacheKey = 'admin_v2_' + userEmail;
+  const cacheKey = 'admin_v3_' + userEmail;
   const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     adminPendingCache = cached.pending;
@@ -1274,7 +1274,7 @@ function renderAdminView() {
         const succeededIds = result.approved || [];
         const failCount = (result.failed || []).length;
         adminPendingCache = adminPendingCache.filter(t => !succeededIds.includes(t.id));
-        localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+        localCacheSet('admin_v3_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
         toast(
           failCount > 0
             ? 'Approved ' + succeededIds.length + ', ' + failCount + ' failed — tap the button again to retry those'
@@ -1351,7 +1351,7 @@ function renderDiagnoseView(app) {
   const d = diagnoseCache;
 
   // --- Code version check ---
-  const expectedVersion = '2026-08-29-today';
+  const expectedVersion = '2026-08-29-today2';
   const versionOk = d.codeVersion === expectedVersion;
   app.insertAdjacentHTML('beforeend',
     '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
@@ -1865,7 +1865,7 @@ async function rollbackTask(t, btn, card) {
     await callApi('rollback', { id: t.id });
     toast('Rolled back — task is pending again', 'success');
     adminDoneCache = adminDoneCache.filter(x => String(x.id) !== String(t.id));
-    localCacheSet('admin_v2_' + userEmail, {
+    localCacheSet('admin_v3_' + userEmail, {
       pending: adminPendingCache, overdue: adminOverdueCache,
       performance: adminPerformanceCache, rejected: adminRejectedCache,
       done: adminDoneCache
@@ -1973,7 +1973,7 @@ async function decide(id, approve, btn) {
           task: sourceEntry.task, planned: sourceEntry.planned, remark: remark
         }]);
       }
-      localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+      localCacheSet('admin_v3_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
       renderAdminView();
     }, 180);
   } else {
@@ -1985,7 +1985,7 @@ async function decide(id, approve, btn) {
       if (freshData.performance) adminPerformanceCache = freshData.performance;
       if (freshData.rejected) adminRejectedCache = freshData.rejected;
       if (freshData.doers) doersList = freshData.doers;
-      localCacheSet('admin_v2_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
+      localCacheSet('admin_v3_' + userEmail, { pending: adminPendingCache, overdue: adminOverdueCache, performance: adminPerformanceCache, rejected: adminRejectedCache });
       const taskGone = !adminPendingCache.some(t => String(t.id) === String(id)) &&
                        !adminOverdueCache.some(t => String(t.id) === String(id));
       if (taskGone) {
