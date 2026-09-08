@@ -1351,7 +1351,7 @@ function renderDiagnoseView(app) {
   const d = diagnoseCache;
 
   // --- Code version check ---
-  const expectedVersion = '2026-09-08-archive-sync';
+  const expectedVersion = '2026-09-08-archive-sync2';
   const versionOk = d.codeVersion === expectedVersion;
   app.insertAdjacentHTML('beforeend',
     '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
