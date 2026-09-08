@@ -1351,7 +1351,7 @@ function renderDiagnoseView(app) {
   const d = diagnoseCache;
 
   // --- Code version check ---
-  const expectedVersion = '2026-08-29-today2';
+  const expectedVersion = '2026-09-08-archive-sync';
   const versionOk = d.codeVersion === expectedVersion;
   app.insertAdjacentHTML('beforeend',
     '<div class="card" style="border-left-color:' + (versionOk ? 'var(--green)' : 'var(--red)') + ';">' +
@@ -1414,6 +1414,30 @@ function renderDiagnoseView(app) {
               : '') +
           '</div>');
       }
+    }
+  }
+
+  // --- Archive sync ---
+  if (d.archiveInfo) {
+    const ai = d.archiveInfo;
+    app.insertAdjacentHTML('beforeend', '<div class="section-title">Archive Sheet (live mirror)</div>');
+    if (!ai.available) {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card"><div class="task-name">No archive sheet found</div>' +
+        '<div class="meta">Nothing to mirror — this is fine if you never ran setupVirtualMaster().</div></div>');
+    } else if (!ai.linked) {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--amber);">' +
+          '<div class="task-name">' + escHtml(ai.sheetName) + ' — not linked yet (' + ai.rowCount + ' rows)</div>' +
+          '<div class="meta">Run syncArchiveActuals() in the Apps Script editor once. It stamps each row with its VirtualID and backfills the Actual column; after that every completion mirrors automatically.</div>' +
+        '</div>');
+    } else {
+      app.insertAdjacentHTML('beforeend',
+        '<div class="card" style="border-left-color:var(--green);">' +
+          '<div class="task-name">' + escHtml(ai.sheetName) + ' — linked, ' + ai.rowCount + ' rows</div>' +
+          '<div class="meta">' + (ai.syncEnabled ? 'Actual column mirrors every completion as it happens.' : 'Linked, but ARCHIVE_SYNC_ENABLED is off.') +
+            (ai.hasActual ? '' : ' ⚠ No Actual column found to write into.') + '</div>' +
+        '</div>');
     }
   }
 
