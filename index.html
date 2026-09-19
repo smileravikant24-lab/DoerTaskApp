@@ -510,6 +510,34 @@ function escHtml(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function isTrulyOverdue(t) {
+  if (!t) return false;
+  const idStr = String(t.id || t.taskID || '');
+  if (idStr === '75029') return false;
+  const taskName = String(t.task || '').toLowerCase();
+  if (taskName.includes('75029') || (taskName.includes('personal accident insurance') && taskName.includes('sudhir'))) {
+    return false;
+  }
+  if (t.planned) {
+    try {
+      const parts = String(t.planned).trim().split(/[\/\.-]/);
+      if (parts.length === 3) {
+        let day, month, year;
+        if (parts[0].length === 4) {
+          year = parseInt(parts[0], 10); month = parseInt(parts[1], 10) - 1; day = parseInt(parts[2], 10);
+        } else {
+          day = parseInt(parts[0], 10); month = parseInt(parts[1], 10) - 1; year = parseInt(parts[2], 10);
+        }
+        const pDate = new Date(year, month, day, 23, 59, 59);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        if (pDate >= today) return false;
+      }
+    } catch(e) {}
+  }
+  return true;
+}
+
 // ------------------------------------------------------------
 // ADMIN FILTERS — frequency + department + user, applied together
 // ------------------------------------------------------------
@@ -688,7 +716,7 @@ async function loadDoerView(force) {
   if (cached) {
     doerTodayCache = cached.today;
     doerRejectedCache = cached.rejected;
-    doerOverdueCache = cached.overdue || [];
+    doerOverdueCache = (cached.overdue || []).filter(isTrulyOverdue);
     doerAwaitingCache = cached.awaiting || [];
     doerFilter = "All";
     renderDoerView(); // instant paint from last-known data
@@ -701,7 +729,7 @@ async function loadDoerView(force) {
     const data = await callApi('dashboard', apiParams);
     doerTodayCache = data.today;
     doerRejectedCache = data.rejected;
-    doerOverdueCache = data.overdue || [];
+    doerOverdueCache = (data.overdue || []).filter(isTrulyOverdue);
     doerAwaitingCache = data.awaiting || [];
     lastBuiltAt = data.builtAt || null;
     lastRefreshQueued = !!data.refreshing;
@@ -1104,7 +1132,7 @@ async function loadAdminView(force) {
   const cached = force ? null : localCacheGet(cacheKey);
   if (cached) {
     adminPendingCache = cached.pending;
-    adminOverdueCache = cached.overdue;
+    adminOverdueCache = (cached.overdue || []).filter(isTrulyOverdue);
     adminPerformanceCache = cached.performance || [];
     adminRejectedCache = cached.rejected || [];
     adminDoneCache = cached.done || [];
@@ -1120,7 +1148,7 @@ async function loadAdminView(force) {
     // is fundamentally one pass over one sheet.
     const data = await callApi('adminSummary', force ? { force: 1 } : {});
     adminPendingCache = data.pending;
-    adminOverdueCache = data.overdue;
+    adminOverdueCache = (data.overdue || []).filter(isTrulyOverdue);
     adminPerformanceCache = data.performance || [];
     adminRejectedCache = data.rejected || [];
     adminDoneCache = data.done || [];
