@@ -325,8 +325,21 @@ const FREQ_LABELS = {
   D: "Daily", W: "Weekly", F: "Fortnightly", M: "Monthly", Q: "Quarterly", Y: "Yearly",
   E1: "1st weekday/mo", E2: "2nd weekday/mo",
   E1ST: "1st weekday/mo", E2ND: "2nd weekday/mo", E3RD: "3rd weekday/mo",
-  E4TH: "4th weekday/mo", ELAST: "Last weekday/mo"
+  E4TH: "4th weekday/mo", ELAST: "Last weekday/mo",
+  "M1-7": "Monthly (1st-7th)",
+  MD: "Monthly Daily Range"
 };
+
+function formatFreq(f) {
+  if (!f) return '';
+  if (FREQ_LABELS[f]) return FREQ_LABELS[f];
+  const m = String(f).match(/^M(\d+)-(\d+)$/i);
+  if (m) return 'Monthly (' + m[1] + 'th-' + m[2] + 'th)';
+  const d = String(f).match(/^D(\d+)-(\d+)$/i);
+  if (d) return 'Daily (' + d[1] + 'th-' + d[2] + 'th)';
+  return f;
+}
+
 
 let idToken = null;
 let userEmail = null;
@@ -567,7 +580,7 @@ function renderAdminFilters(container, source) {
   freqs.forEach(f => {
     const n = freqBase.filter(t => t.freq === f).length;
     html += '<div class="chip freq-chip ' + (adminFilter === f ? 'active' : '') + '" data-freq="' + escHtml(f) + '">' +
-            escHtml(FREQ_LABELS[f] || f) + ' (' + n + ')</div>';
+            escHtml(formatFreq(f)) + ' (' + n + ')</div>';
   });
   html += '<button class="legend-btn" id="legendToggle">Legend</button></div>';
   html += '<div class="legend-panel" id="legendPanel">' +
@@ -630,7 +643,7 @@ function renderFilterRow(container, itemsForCounts, currentFilter, onSelect) {
   let html = '<div class="filter-row"><div class="chip freq-chip ' + (currentFilter === "All" ? "active" : "") + '" data-freq="All">All (' + itemsForCounts.length + ')</div>';
   freqsPresent.forEach(f => {
     const count = itemsForCounts.filter(t => t.freq === f).length;
-    html += '<div class="chip freq-chip ' + (currentFilter === f ? "active" : "") + '" data-freq="' + f + '">' + (FREQ_LABELS[f] || f) + ' (' + count + ')</div>';
+    html += '<div class="chip freq-chip ' + (currentFilter === f ? "active" : "") + '" data-freq="' + escHtml(f) + '">' + escHtml(formatFreq(f)) + ' (' + count + ')</div>';
   });
   html += '<button class="legend-btn" id="legendToggle">Legend</button></div>';
   html += '<div class="legend-panel" id="legendPanel">' +
@@ -933,7 +946,7 @@ function taskCard(t, kind) {
               : (kind === 'overdue' ? '<span class="badge">Overdue</span>'
               : (kind === 'awaiting' ? '<span class="badge" style="background:var(--ink-light)">Waiting</span>' : ''));
   card.innerHTML =
-    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + badge + '</div>' +
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(formatFreq(t.freq)) + '</span>' : '') + badge + '</div>' +
     '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>';
 
   if (kind === 'awaiting') {
@@ -1857,7 +1870,7 @@ function overdueTaskCard(t) {
     ? '<span class="badge" style="background:#7c8ba1">Awaiting Approval</span>'
     : '<span class="badge">Overdue</span>';
   card.innerHTML =
-    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + badge + '</div>' +
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(formatFreq(t.freq)) + '</span>' : '') + badge + '</div>' +
     '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Was planned ' + escHtml(t.planned) + '</div>';
   if (isAwaiting && isApprover) {
     const actions = document.createElement('div');
@@ -1885,7 +1898,7 @@ function doneTaskCard(t) {
   card.className = 'card';
   card.innerHTML =
     '<div class="task-name">' + escHtml(t.task) +
-      (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') +
+      (t.freq ? '<span class="freq-tag">' + escHtml(formatFreq(t.freq)) + '</span>' : '') +
       '<span class="badge" style="background:var(--green, #2e7d52)">' + escHtml(t.status || 'Done') + '</span></div>' +
     '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) +
       (t.actual ? '<span class="dot">•</span>Done ' + escHtml(t.actual) : '') + '</div>';
@@ -1936,7 +1949,7 @@ function rejectedTaskCard(t) {
   const card = document.createElement('div');
   card.className = 'card rejected';
   card.innerHTML =
-    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '<span class="badge">Rejected</span></div>' +
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(formatFreq(t.freq)) + '</span>' : '') + '<span class="badge">Rejected</span></div>' +
     '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) + '</div>' +
     (t.remark ? '<div class="meta" style="margin-top:6px; color:var(--amber);">Reason: ' + escHtml(t.remark) + '</div>' : '');
   return card;
@@ -1949,7 +1962,7 @@ function adminTaskCard(t) {
   // blank column H (approval is what fills it), so showing "Actual —" on
   // every card was noise. Approving is what stamps the date.
   card.innerHTML =
-    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(FREQ_LABELS[t.freq] || t.freq) + '</span>' : '') + '</div>' +
+    '<div class="task-name">' + escHtml(t.task) + (t.freq ? '<span class="freq-tag">' + escHtml(formatFreq(t.freq)) + '</span>' : '') + '</div>' +
     '<div class="meta">' + escHtml(t.department) + '<span class="dot">•</span>Planned ' + escHtml(t.planned) +
     '<span class="dot">•</span><span style="opacity:.5">ID ' + escHtml(String(t.id)) + '</span></div>';
   if (isApprover) {
